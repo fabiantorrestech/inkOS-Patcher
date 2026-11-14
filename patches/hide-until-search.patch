@@ -1,0 +1,180 @@
+From 9c9a1d81ec6bfe57e9cc6cc2a90a0e8929f3b25f Mon Sep 17 00:00:00 2001
+From: fabiantorrestech <fabiantorrestech@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 08:34:11 -0600
+Subject: [PATCH] Drawer: show apps only after search (inkOS-Patcher)
+
+Adds Settings > App Drawer > Search > "Show Apps" with three modes:
+- Always: vanilla behavior.
+- While typing: the drawer is empty until the search box has text.
+- After Search key (default): the drawer is empty until Search is
+  pressed for the current text. Editing the text hides results again;
+  a second Search press launches the first result.
+
+Only the normal drawer is gated, and only while the search bar is on.
+Hidden apps, home-app picking, favorites editing and the AZ filter are
+unchanged. Rules live in ui/DrawerReveal.kt; upstream files get small
+hooks only.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../com/github/gezimos/inkos/data/Prefs.kt    |  5 ++++
+ .../github/gezimos/inkos/ui/AppsFragment.kt   | 29 +++++++++++++++++--
+ .../github/gezimos/inkos/ui/DrawerReveal.kt   | 29 +++++++++++++++++++
+ .../gezimos/inkos/ui/SettingsFragment.kt      | 11 +++++++
+ .../main/res/values/strings_drawer_reveal.xml |  9 ++++++
+ 5 files changed, 81 insertions(+), 2 deletions(-)
+ create mode 100644 app/src/main/java/com/github/gezimos/inkos/ui/DrawerReveal.kt
+ create mode 100644 app/src/main/res/values/strings_drawer_reveal.xml
+
+diff --git a/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt b/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt
+index 8a46eb3..8bf9051 100644
+--- a/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt
++++ b/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt
+@@ -1573,6 +1573,11 @@ class Prefs(val context: Context) {
+         get() = prefs.getBoolean(Constants.PrefKeys.APP_DRAWER_AUTO_LAUNCH, true)
+         set(value) = prefs.edit { putBoolean(Constants.PrefKeys.APP_DRAWER_AUTO_LAUNCH, value) }
+ 
++    // inkOS-Patcher: when the normal drawer lists apps (see ui/DrawerReveal.kt)
++    var appDrawerRevealMode: Int
++        get() = prefs.getInt("APP_DRAWER_REVEAL_MODE", com.github.gezimos.inkos.ui.DrawerReveal.DEFAULT)
++        set(value) = prefs.edit { putInt("APP_DRAWER_REVEAL_MODE", value.coerceIn(0, com.github.gezimos.inkos.ui.DrawerReveal.MODE_COUNT - 1)) }
++
+     var appDrawerSearchContactsEnabled: Boolean
+         get() = prefs.getBoolean(APP_DRAWER_SEARCH_CONTACTS, false)
+         set(value) = prefs.edit { putBoolean(APP_DRAWER_SEARCH_CONTACTS, value) }
+diff --git a/app/src/main/java/com/github/gezimos/inkos/ui/AppsFragment.kt b/app/src/main/java/com/github/gezimos/inkos/ui/AppsFragment.kt
+index 018da3d..1e27dac 100644
+--- a/app/src/main/java/com/github/gezimos/inkos/ui/AppsFragment.kt
++++ b/app/src/main/java/com/github/gezimos/inkos/ui/AppsFragment.kt
+@@ -188,6 +188,15 @@ class AppsFragment : Fragment() {
+                         }
+                     }
+                 }
++
++                // inkOS-Patcher: hide-until-search. Reads the ViewModel's search flag (a State), not
++                // state.searchEnabled (a plain var set later), so the full list never flashes.
++                val revealMode = remember { prefs.appDrawerRevealMode }
++                var submittedQuery by remember { mutableStateOf<String?>(null) }
++                fun revealGated(): Boolean = DrawerReveal.gateApplies(
++                    revealMode, flag == Constants.AppDrawerFlag.LaunchApp,
++                    appsDrawer.appDrawerSearchEnabled || searchMode >= 0
++                )
+                 
+                 LaunchedEffect(flag) {
+                     if (flag == Constants.AppDrawerFlag.EditFavorites) {
+@@ -471,6 +480,8 @@ class AppsFragment : Fragment() {
+                             sortedApps.filter { app ->
+                                 app.normalizedFirstChar == filterChar
+                             }
++                        } else if (revealGated() && !DrawerReveal.showsResults(revealMode, query, submittedQuery)) {
++                            emptyList()
+                         } else if (!isSearchActive) {
+                             sortedApps
+                         } else {
+@@ -590,6 +601,11 @@ class AppsFragment : Fragment() {
+                         state.azFilterLetter = null
+                     }
+                 }
++
++                // inkOS-Patcher: editing the text hides results until Search is pressed again.
++                LaunchedEffect(state.searchQuery.text) {
++                    if (submittedQuery != null && submittedQuery != state.searchQuery.text) submittedQuery = null
++                }
+                 
+ 
+                 LaunchedEffect(state.currentPage, totalPages) {
+@@ -1161,8 +1177,17 @@ class AppsFragment : Fragment() {
+                                 },
+                                 onSearchAction = {
+                                     try {
+-                                        val first = displayApps.firstOrNull()
+-                                        if (first != null) handleAppClick(first)
++                                        // inkOS-Patcher: first Search press reveals results, the next one launches.
++                                        val query = state.searchQuery.text
++                                        if (revealGated() && DrawerReveal.needsSubmit(revealMode, query, submittedQuery)) {
++                                            if (query.isNotBlank()) {
++                                                submittedQuery = query
++                                                keyboardController?.hide()
++                                            }
++                                        } else {
++                                            val first = displayApps.firstOrNull()
++                                            if (first != null) handleAppClick(first)
++                                        }
+                                     } catch (_: Exception) {}
+                                 },
+                                 onInteract = { state.isDpadMode = false },
+diff --git a/app/src/main/java/com/github/gezimos/inkos/ui/DrawerReveal.kt b/app/src/main/java/com/github/gezimos/inkos/ui/DrawerReveal.kt
+new file mode 100644
+index 0000000..5f2fa28
+--- /dev/null
++++ b/app/src/main/java/com/github/gezimos/inkos/ui/DrawerReveal.kt
+@@ -0,0 +1,29 @@
++package com.github.gezimos.inkos.ui
++
++/**
++ * inkOS-Patcher: decides when the normal app drawer lists anything.
++ *
++ * Pure rules, no Android code. AppsFragment asks these questions; Prefs stores the mode.
++ */
++object DrawerReveal {
++    const val ALWAYS = 0            // vanilla inkOS: full list when the search box is empty
++    const val WHILE_TYPING = 1      // empty until the search box has text
++    const val AFTER_SEARCH_KEY = 2  // empty until Search is pressed for the current text
++    const val DEFAULT = AFTER_SEARCH_KEY
++    const val MODE_COUNT = 3
++
++    /** Only the normal drawer is gated, and only when there is a search box to reveal it with. */
++    fun gateApplies(mode: Int, isLaunchDrawer: Boolean, searchAvailable: Boolean): Boolean =
++        mode != ALWAYS && isLaunchDrawer && searchAvailable
++
++    /** Whether the drawer may list results for [query]. [submittedQuery] is the text Search was last pressed for. */
++    fun showsResults(mode: Int, query: String, submittedQuery: String?): Boolean = when (mode) {
++        WHILE_TYPING -> query.isNotBlank()
++        AFTER_SEARCH_KEY -> query.isNotBlank() && submittedQuery == query
++        else -> true
++    }
++
++    /** True when pressing Search should reveal results instead of launching the first one. */
++    fun needsSubmit(mode: Int, query: String, submittedQuery: String?): Boolean =
++        mode == AFTER_SEARCH_KEY && submittedQuery != query
++}
+diff --git a/app/src/main/java/com/github/gezimos/inkos/ui/SettingsFragment.kt b/app/src/main/java/com/github/gezimos/inkos/ui/SettingsFragment.kt
+index 730e996..1524e13 100644
+--- a/app/src/main/java/com/github/gezimos/inkos/ui/SettingsFragment.kt
++++ b/app/src/main/java/com/github/gezimos/inkos/ui/SettingsFragment.kt
+@@ -1436,6 +1436,17 @@ class SettingsFragment : Fragment() {
+                 description = stringResource(R.string.desc_show_search_bar),
+                 defaultState = uiState.appDrawerSearchEnabled,
+                 onCheckedChange = { viewModel.setAppDrawerSearchEnabled(it) })
++            // inkOS-Patcher: hide-until-search
++            var drawerRevealMode by remember { mutableStateOf(prefs.appDrawerRevealMode) }
++            val drawerRevealLabels = listOf(stringResource(R.string.drawer_reveal_always), stringResource(R.string.drawer_reveal_while_typing), stringResource(R.string.drawer_reveal_after_search))
++            SettingsSelect(title = stringResource(R.string.drawer_reveal_title),
++                option = drawerRevealLabels.getOrElse(drawerRevealMode) { drawerRevealLabels[0] },
++                description = stringResource(R.string.desc_drawer_reveal),
++                enabled = uiState.appDrawerSearchEnabled,
++                fontSize = titleFontSize, onClick = {
++                    drawerRevealMode = (drawerRevealMode + 1) % DrawerReveal.MODE_COUNT
++                    prefs.appDrawerRevealMode = drawerRevealMode
++                })
+             SettingsSwitch(text = stringResource(R.string.auto_show_keyboard), fontSize = titleFontSize,
+                 description = stringResource(R.string.desc_auto_keyboard),
+                 defaultState = uiState.appDrawerAutoShowKeyboard, enabled = uiState.appDrawerSearchEnabled,
+diff --git a/app/src/main/res/values/strings_drawer_reveal.xml b/app/src/main/res/values/strings_drawer_reveal.xml
+new file mode 100644
+index 0000000..f20023f
+--- /dev/null
++++ b/app/src/main/res/values/strings_drawer_reveal.xml
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- inkOS-Patcher: hide-until-search patch. Kept out of strings.xml so upstream edits never conflict. -->
++<resources>
++    <string name="drawer_reveal_title">Show Apps</string>
++    <string name="desc_drawer_reveal">When the drawer lists apps</string>
++    <string name="drawer_reveal_always">Always</string>
++    <string name="drawer_reveal_while_typing">While typing</string>
++    <string name="drawer_reveal_after_search">After Search key</string>
++</resources>
+-- 
+2.54.0.windows.1
+

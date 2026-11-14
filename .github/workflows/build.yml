@@ -1,0 +1,220 @@
+name: Build patched inkOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'inkOS release to patch (v0.6 or later), or "latest"'
+        required: true
+        default: latest
+      force:
+        description: Rebuild even if this release was already built
+        type: boolean
+        default: false
+  schedule:
+    # Daily check for a new upstream release (09:00 UTC). Builds only when there is one.
+    - cron: '0 9 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-patched-inkos
+  cancel-in-progress: false
+
+env:
+  UPSTREAM: gezimos/inkOS
+  MIN_RELEASE: v0.6
+  HUB: fabiantorrestech/android-apps
+  HUB_KEY: PERSONAL
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Resolve release
+        id: rel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_RELEASE: ${{ github.event.inputs.release || 'latest' }}
+          INPUT_FORCE: ${{ github.event.inputs.force || 'false' }}
+        run: |
+          set -euo pipefail
+          LATEST="$(gh release view -R "$UPSTREAM" --json tagName -q .tagName)"
+          if [ "$INPUT_RELEASE" = "latest" ]; then
+            TAG="$LATEST"
+          else
+            TAG="$INPUT_RELEASE"
+          fi
+
+          if ! [[ "$TAG" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::'$TAG' is not a valid release name."
+            exit 1
+          fi
+          # Version-aware compare: v0.6 < v0.10.
+          if [ "$(printf '%s\n%s\n' "$MIN_RELEASE" "$TAG" | sort -V | head -1)" != "$MIN_RELEASE" ]; then
+            echo "::error::The patch supports inkOS $MIN_RELEASE and later (asked for $TAG)."
+            exit 1
+          fi
+          if ! gh release view "$TAG" -R "$UPSTREAM" > /dev/null 2>&1; then
+            echo "::error::inkOS has no release '$TAG'. See https://github.com/$UPSTREAM/releases"
+            exit 1
+          fi
+
+          OUT="${TAG}-patched"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "out=$OUT" >> "$GITHUB_OUTPUT"
+          # Only the newest upstream release becomes "latest" here, so update apps never downgrade.
+          if [ "$TAG" = "$LATEST" ]; then echo "latest=true" >> "$GITHUB_OUTPUT"; else echo "latest=false" >> "$GITHUB_OUTPUT"; fi
+
+          if gh release view "$OUT" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1 && [ "$INPUT_FORCE" != "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Release **$OUT** already exists. Nothing to do (run with *force* to rebuild)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Clone inkOS ${{ steps.rel.outputs.tag }}
+        if: steps.rel.outputs.skip == 'false'
+        env:
+          TAG: ${{ steps.rel.outputs.tag }}
+        run: |
+          # Full history so `git am -3` can find the blobs the patch was made against.
+          git clone --quiet "https://github.com/$UPSTREAM.git" inkos
+          git -C inkos checkout --quiet "refs/tags/$TAG"
+
+      - name: Apply patches
+        if: steps.rel.outputs.skip == 'false'
+        working-directory: inkos
+        env:
+          TAG: ${{ steps.rel.outputs.tag }}
+        run: |
+          git config user.name "inkOS-Patcher builder"
+          git config user.email "actions@users.noreply.github.com"
+          # Every patches/*.patch, in name order. Each one is its own commit, so one failing
+          # patch names itself in the summary.
+          for patch in ../patches/*.patch; do
+            name="$(basename "$patch" .patch)"
+            if ! git am -3 "$patch"; then
+              {
+                echo "### The $name patch no longer applies to inkOS $TAG"
+                echo "Conflicting files:"
+                git diff --name-only --diff-filter=U | sed 's/^/- /'
+                echo ""
+                echo "Fix: run \`scripts/refresh-patch.sh <inkOS checkout> $TAG $name\` locally (see README), push, then run this workflow again."
+              } >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::The $name patch conflicts with inkOS $TAG. See the job summary."
+              exit 1
+            fi
+          done
+
+      - name: Set up JDK 17
+        if: steps.rel.outputs.skip == 'false'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Gradle
+        if: steps.rel.outputs.skip == 'false'
+        uses: gradle/actions/setup-gradle@v4
+
+      # inkOS's own build.gradle.kts signs the release build from these env vars.
+      - name: Build signed release APK
+        if: steps.rel.outputs.skip == 'false'
+        working-directory: inkos
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::error::SIGNING_KEY secret is missing."
+            exit 1
+          fi
+          echo "$SIGNING_KEY" | base64 --decode > "$KEYSTORE_FILE"
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      - name: Remove keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.keystore"
+
+      # Refuse to publish an APK signed with anything but the PERSONAL key the app hub expects,
+      # so a wrong secret (or an unsigned build) can never ship an APK that won't install over the last one.
+      - name: Check signing key
+        if: steps.rel.outputs.skip == 'false'
+        id: apk
+        env:
+          OUT: ${{ steps.rel.outputs.out }}
+        run: |
+          set -euo pipefail
+          built="$(ls inkos/app/build/outputs/apk/release/*.apk | head -1)"
+          expected="$(curl -fsSL "https://raw.githubusercontent.com/$HUB/main/apps.json" | jq -r ".keys.$HUB_KEY")"
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
+          actual="$("$apksigner" verify --print-certs "$built" | sed -n 's/.*certificate SHA-256 digest: \([0-9a-f]*\).*/\1/p' | head -1)"
+          if [ -z "$expected" ] || [ "$expected" = "null" ] || [ "$actual" != "$expected" ]; then
+            echo "::error::APK signer '$actual' does not match $HUB_KEY in $HUB/apps.json ($expected)."
+            exit 1
+          fi
+          echo "Signed with $HUB_KEY ($actual)"
+          DEST="inkOS-${OUT}.apk"
+          cp "$built" "$DEST"
+          echo "path=$DEST" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare release notes
+        if: steps.rel.outputs.skip == 'false'
+        env:
+          TAG: ${{ steps.rel.outputs.tag }}
+        run: |
+          {
+            echo "inkOS $TAG with one patch:"
+            echo ""
+            echo "- Hide until search: Settings > App Drawer > Search > **Show Apps** chooses when the app"
+            echo "  drawer lists apps: Always (stock inkOS), While typing, or After Search key (default)."
+            echo "  In After Search key mode the drawer stays empty until you type and press Search."
+            echo ""
+            echo "Upstream: https://github.com/$UPSTREAM/releases/tag/$TAG"
+          } > release-notes.md
+
+      - name: Publish release
+        if: steps.rel.outputs.skip == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.rel.outputs.out }}
+          name: inkOS ${{ steps.rel.outputs.out }}
+          body_path: release-notes.md
+          files: ${{ steps.apk.outputs.path }}
+          make_latest: ${{ steps.rel.outputs.latest }}
+
+      # Same rolling-release step as the other apps' workflows (android-apps ADR 4 and 8).
+      # Only the newest upstream release goes to the hub, so its download never goes backwards.
+      - name: Publish to the app hub (fabiantorrestech/android-apps)
+        if: steps.rel.outputs.skip == 'false' && steps.rel.outputs.latest == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.APP_HUB_TOKEN }}
+          TAG: inkos
+          NAME: inkOS (search-first patch)
+          SRC: ${{ steps.apk.outputs.path }}
+          OUT: ${{ steps.rel.outputs.out }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::APP_HUB_TOKEN missing: not publishing to the hub"
+            exit 0
+          fi
+          cp "$SRC" inkOS.apk
+          title="$NAME $OUT"
+          notes="Built by CI from ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}: inkOS ${OUT%-patched} with the hide-until-search patch, on $(date -u '+%Y-%m-%d %H:%M') UTC."
+          if gh release view "$TAG" --repo "$HUB" > /dev/null 2>&1; then
+            gh release upload "$TAG" inkOS.apk --repo "$HUB" --clobber
+            gh release edit "$TAG" --repo "$HUB" --title "$title" --notes "$notes"
+          else
+            gh release create "$TAG" inkOS.apk --repo "$HUB" --target main --title "$title" --notes "$notes" --latest=false
+          fi
