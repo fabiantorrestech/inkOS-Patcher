@@ -1,4 +1,4 @@
-From bd59aa6ddd4c3fa43060bc5421a6bb641ba131a5 Mon Sep 17 00:00:00 2001
+From ae573ea65021c548f35db169f29b6338f488196e Mon Sep 17 00:00:00 2001
 From: fabiantorrestech <fabiantorrestech@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 08:34:11 -0600
 Subject: [PATCH] Drawer: show apps only after search (inkOS-Patcher)
@@ -17,12 +17,12 @@ hooks only.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- .../com/github/gezimos/inkos/data/Prefs.kt    |  5 +++
- .../github/gezimos/inkos/ui/AppsFragment.kt   | 42 +++++++++++++++++--
- .../github/gezimos/inkos/ui/DrawerReveal.kt   | 29 +++++++++++++
- .../gezimos/inkos/ui/SettingsFragment.kt      | 11 +++++
- .../main/res/values/strings_drawer_reveal.xml |  9 ++++
- 5 files changed, 93 insertions(+), 3 deletions(-)
+ .../com/github/gezimos/inkos/data/Prefs.kt    |  5 ++
+ .../github/gezimos/inkos/ui/AppsFragment.kt   | 70 +++++++++++++++++--
+ .../github/gezimos/inkos/ui/DrawerReveal.kt   | 29 ++++++++
+ .../gezimos/inkos/ui/SettingsFragment.kt      | 11 +++
+ .../main/res/values/strings_drawer_reveal.xml |  9 +++
+ 5 files changed, 120 insertions(+), 4 deletions(-)
  create mode 100644 app/src/main/java/com/github/gezimos/inkos/ui/DrawerReveal.kt
  create mode 100644 app/src/main/res/values/strings_drawer_reveal.xml
 
@@ -43,7 +43,7 @@ index 8a46eb3..8bf9051 100644
          get() = prefs.getBoolean(APP_DRAWER_SEARCH_CONTACTS, false)
          set(value) = prefs.edit { putBoolean(APP_DRAWER_SEARCH_CONTACTS, value) }
 diff --git a/app/src/main/java/com/github/gezimos/inkos/ui/AppsFragment.kt b/app/src/main/java/com/github/gezimos/inkos/ui/AppsFragment.kt
-index 018da3d..c6db16e 100644
+index 018da3d..f8c1e74 100644
 --- a/app/src/main/java/com/github/gezimos/inkos/ui/AppsFragment.kt
 +++ b/app/src/main/java/com/github/gezimos/inkos/ui/AppsFragment.kt
 @@ -188,6 +188,21 @@ class AppsFragment : Fragment() {
@@ -89,7 +89,49 @@ index 018da3d..c6db16e 100644
                  
  
                  LaunchedEffect(state.currentPage, totalPages) {
-@@ -1161,11 +1183,25 @@ class AppsFragment : Fragment() {
+@@ -700,7 +722,26 @@ class AppsFragment : Fragment() {
+                         }
+                     } catch (_: Exception) {}
+                 }
+-                
++
++                // inkOS-Patcher: on slow (e-ink) devices the single request above often lands before the window
++                // and the keyboard are ready, and Android drops it. Ask again every 250 ms for the first 1.5 s
++                // after the window has focus (a no-op once the keyboard is up); stop as soon as typing starts.
++                val drawerView = androidx.compose.ui.platform.LocalView.current
++                LaunchedEffect(Unit) {
++                    try {
++                        if ((appsDrawer.appDrawerAutoShowKeyboard || searchMode >= 0) && state.searchEnabled) {
++                            var waitedMs = 0
++                            while (!drawerView.hasWindowFocus() && waitedMs < 3000) { delay(50); waitedMs += 50 }
++                            repeat(6) {
++                                if (state.searchQuery.text.isNotEmpty()) return@LaunchedEffect
++                                try { searchFocusRequester.requestFocus() } catch (_: Exception) {}
++                                try { keyboardController?.show() } catch (_: Exception) {}
++                                delay(250)
++                            }
++                        }
++                    } catch (_: Exception) {}
++                }
++
+                 LaunchedEffect(state.showRenameOverlay) {
+                     keyPressTracker.reset()
+                 }
+@@ -740,6 +781,13 @@ class AppsFragment : Fragment() {
+                                     if (state.showRenameOverlay) {
+                                         return@onPreviewKeyEvent false
+                                     }
++                                    // inkOS-Patcher: on-screen keyboards (e.g. Gboard) send held Backspace as key events.
++                                    // Editing the query here, behind the text field's back, restarts the keyboard's input
++                                    // and cancels the key repeat after every letter. Leave soft-keyboard keys to the
++                                    // search field; hardware keys still go through the handling below.
++                                    if ((keyEvent.nativeKeyEvent.flags and android.view.KeyEvent.FLAG_SOFT_KEYBOARD) != 0) {
++                                        return@onPreviewKeyEvent false
++                                    }
+ 
+                                     if (keyEvent.type == KeyEventType.KeyDown && (keyEvent.key == Key.Back || keyEvent.key == Key.Escape)) {
+                                         if (state.azFilterLetter != null) {
+@@ -1161,11 +1209,25 @@ class AppsFragment : Fragment() {
                                  },
                                  onSearchAction = {
                                      try {
