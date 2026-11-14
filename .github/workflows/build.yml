@@ -141,7 +141,15 @@ jobs:
           fi
           echo "$SIGNING_KEY" | base64 --decode > "$KEYSTORE_FILE"
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew assembleRelease assembleDebug
+
+          # inkOS signs debug builds with the throwaway Gradle debug key. Re-sign with PERSONAL so the
+          # hub's debug APK (app.inkos.debug) matches the release key, like every hub app (android-apps ADR 7).
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
+          debug_in="$(ls app/build/outputs/apk/debug/*.apk | head -1)"
+          "$apksigner" sign --ks "$KEYSTORE_FILE" --ks-pass env:KEYSTORE_PASSWORD \
+            --ks-key-alias "$KEY_ALIAS" --key-pass env:KEY_PASSWORD \
+            --out "$RUNNER_TEMP/inkOS-debug.apk" "$debug_in"
 
       - name: Remove keystore
         if: always()
@@ -157,17 +165,22 @@ jobs:
         run: |
           set -euo pipefail
           built="$(ls inkos/app/build/outputs/apk/release/*.apk | head -1)"
+          debug="$RUNNER_TEMP/inkOS-debug.apk"
           expected="$(curl -fsSL "https://raw.githubusercontent.com/$HUB/main/apps.json" | jq -r ".keys.$HUB_KEY")"
           apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
-          actual="$("$apksigner" verify --print-certs "$built" | sed -n 's/.*certificate SHA-256 digest: \([0-9a-f]*\).*/\1/p' | head -1)"
-          if [ -z "$expected" ] || [ "$expected" = "null" ] || [ "$actual" != "$expected" ]; then
-            echo "::error::APK signer '$actual' does not match $HUB_KEY in $HUB/apps.json ($expected)."
-            exit 1
-          fi
-          echo "Signed with $HUB_KEY ($actual)"
+          for apk in "$built" "$debug"; do
+            actual="$("$apksigner" verify --print-certs "$apk" | sed -n 's/.*certificate SHA-256 digest: \([0-9a-f]*\).*/\1/p' | head -1)"
+            if [ -z "$expected" ] || [ "$expected" = "null" ] || [ "$actual" != "$expected" ]; then
+              echo "::error::$(basename "$apk") signer '$actual' does not match $HUB_KEY in $HUB/apps.json ($expected)."
+              exit 1
+            fi
+            echo "$(basename "$apk") signed with $HUB_KEY ($actual)"
+          done
           DEST="inkOS-${OUT}.apk"
           cp "$built" "$DEST"
+          cp "$debug" inkOS-debug.apk
           echo "path=$DEST" >> "$GITHUB_OUTPUT"
+          echo "debug=inkOS-debug.apk" >> "$GITHUB_OUTPUT"
 
       - name: Prepare release notes
         if: steps.rel.outputs.skip == 'false'
@@ -203,6 +216,7 @@ jobs:
           TAG: inkos
           NAME: inkOS (search-first patch)
           SRC: ${{ steps.apk.outputs.path }}
+          DEBUG: ${{ steps.apk.outputs.debug }}
           OUT: ${{ steps.rel.outputs.out }}
         run: |
           if [ -z "$GH_TOKEN" ]; then
@@ -213,8 +227,8 @@ jobs:
           title="$NAME $OUT"
           notes="Built by CI from ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}: inkOS ${OUT%-patched} with the hide-until-search patch, on $(date -u '+%Y-%m-%d %H:%M') UTC."
           if gh release view "$TAG" --repo "$HUB" > /dev/null 2>&1; then
-            gh release upload "$TAG" inkOS.apk --repo "$HUB" --clobber
+            gh release upload "$TAG" inkOS.apk "$DEBUG" --repo "$HUB" --clobber
             gh release edit "$TAG" --repo "$HUB" --title "$title" --notes "$notes"
           else
-            gh release create "$TAG" inkOS.apk --repo "$HUB" --target main --title "$title" --notes "$notes" --latest=false
+            gh release create "$TAG" inkOS.apk "$DEBUG" --repo "$HUB" --target main --title "$title" --notes "$notes" --latest=false
           fi

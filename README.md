@@ -17,6 +17,7 @@ Unofficial build, not made by the inkOS developer. Supports inkOS **v0.6 and lat
 | Where | Link |
 | --- | --- |
 | App hub (always the newest build) | [inkOS.apk](https://github.com/fabiantorrestech/android-apps/releases/download/inkos/inkOS.apk), also listed on [fabiantorrestech.github.io/android-apps](https://fabiantorrestech.github.io/android-apps/) |
+| Debug build (`app.inkos.debug`, "inkOS Debug", installs next to the real one) | [inkOS-debug.apk](https://github.com/fabiantorrestech/android-apps/releases/download/inkos/inkOS-debug.apk) |
 | Every build, by version | [Releases](https://github.com/fabiantorrestech/inkOS-Patcher/releases) (`<version>-patched`) |
 | Automatic updates | In [Obtainium](https://github.com/ImranR98/Obtainium), add `https://github.com/fabiantorrestech/inkOS-Patcher` |
 
@@ -30,10 +31,10 @@ Daily at 09:00 UTC, or when you press "Run workflow"
 2. Already built "<version>-patched"?  yes -> stop (unless "force" is ticked)
 3. Download the official inkOS source code for that release
 4. Apply every patches/*.patch, in name order
-5. Build the release APK, signed with the PERSONAL key
-6. Check the signer matches PERSONAL in android-apps/apps.json (stops if not)
-7. Publish release "<version>-patched" here
-8. If it is the newest inkOS release, also replace inkOS.apk on the app hub
+5. Build the release and debug APKs, both signed with the PERSONAL key
+6. Check both signers match PERSONAL in android-apps/apps.json (stops if not)
+7. Publish release "<version>-patched" here (release APK only)
+8. If it is the newest inkOS release, also replace inkOS.apk and inkOS-debug.apk on the app hub
 ```
 
 A patch is a list of edits, like "in this file, replace this line with that one." Each new inkOS release gets a fresh copy of the official code, and the edits are applied on top. Applying only fails when inkOS itself changed the same lines the patch edits.
