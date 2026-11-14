@@ -1,4 +1,4 @@
-From 9c9a1d81ec6bfe57e9cc6cc2a90a0e8929f3b25f Mon Sep 17 00:00:00 2001
+From bd59aa6ddd4c3fa43060bc5421a6bb641ba131a5 Mon Sep 17 00:00:00 2001
 From: fabiantorrestech <fabiantorrestech@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 08:34:11 -0600
 Subject: [PATCH] Drawer: show apps only after search (inkOS-Patcher)
@@ -17,12 +17,12 @@ hooks only.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- .../com/github/gezimos/inkos/data/Prefs.kt    |  5 ++++
- .../github/gezimos/inkos/ui/AppsFragment.kt   | 29 +++++++++++++++++--
- .../github/gezimos/inkos/ui/DrawerReveal.kt   | 29 +++++++++++++++++++
- .../gezimos/inkos/ui/SettingsFragment.kt      | 11 +++++++
- .../main/res/values/strings_drawer_reveal.xml |  9 ++++++
- 5 files changed, 81 insertions(+), 2 deletions(-)
+ .../com/github/gezimos/inkos/data/Prefs.kt    |  5 +++
+ .../github/gezimos/inkos/ui/AppsFragment.kt   | 42 +++++++++++++++++--
+ .../github/gezimos/inkos/ui/DrawerReveal.kt   | 29 +++++++++++++
+ .../gezimos/inkos/ui/SettingsFragment.kt      | 11 +++++
+ .../main/res/values/strings_drawer_reveal.xml |  9 ++++
+ 5 files changed, 93 insertions(+), 3 deletions(-)
  create mode 100644 app/src/main/java/com/github/gezimos/inkos/ui/DrawerReveal.kt
  create mode 100644 app/src/main/res/values/strings_drawer_reveal.xml
 
@@ -43,10 +43,10 @@ index 8a46eb3..8bf9051 100644
          get() = prefs.getBoolean(APP_DRAWER_SEARCH_CONTACTS, false)
          set(value) = prefs.edit { putBoolean(APP_DRAWER_SEARCH_CONTACTS, value) }
 diff --git a/app/src/main/java/com/github/gezimos/inkos/ui/AppsFragment.kt b/app/src/main/java/com/github/gezimos/inkos/ui/AppsFragment.kt
-index 018da3d..1e27dac 100644
+index 018da3d..c6db16e 100644
 --- a/app/src/main/java/com/github/gezimos/inkos/ui/AppsFragment.kt
 +++ b/app/src/main/java/com/github/gezimos/inkos/ui/AppsFragment.kt
-@@ -188,6 +188,15 @@ class AppsFragment : Fragment() {
+@@ -188,6 +188,21 @@ class AppsFragment : Fragment() {
                          }
                      }
                  }
@@ -59,10 +59,16 @@ index 018da3d..1e27dac 100644
 +                    revealMode, flag == Constants.AppDrawerFlag.LaunchApp,
 +                    appsDrawer.appDrawerSearchEnabled || searchMode >= 0
 +                )
++                // inkOS-Patcher: set the search flag before the first draw. With an empty list and the flag
++                // still false, AppsUI draws "No apps available" with no search field, and because the flag is
++                // a plain var, the later LaunchedEffect that sets it never redraws, leaving no way to search.
++                state.searchEnabled = (appsDrawer.appDrawerSearchEnabled || searchMode >= 0) &&
++                    flag != Constants.AppDrawerFlag.SetHomeApp && flag != Constants.AppDrawerFlag.EditFavorites &&
++                    flag != Constants.AppDrawerFlag.EditHiddenApps
                  
                  LaunchedEffect(flag) {
                      if (flag == Constants.AppDrawerFlag.EditFavorites) {
-@@ -471,6 +480,8 @@ class AppsFragment : Fragment() {
+@@ -471,6 +486,8 @@ class AppsFragment : Fragment() {
                              sortedApps.filter { app ->
                                  app.normalizedFirstChar == filterChar
                              }
@@ -71,7 +77,7 @@ index 018da3d..1e27dac 100644
                          } else if (!isSearchActive) {
                              sortedApps
                          } else {
-@@ -590,6 +601,11 @@ class AppsFragment : Fragment() {
+@@ -590,6 +607,11 @@ class AppsFragment : Fragment() {
                          state.azFilterLetter = null
                      }
                  }
@@ -83,7 +89,7 @@ index 018da3d..1e27dac 100644
                  
  
                  LaunchedEffect(state.currentPage, totalPages) {
-@@ -1161,8 +1177,17 @@ class AppsFragment : Fragment() {
+@@ -1161,11 +1183,25 @@ class AppsFragment : Fragment() {
                                  },
                                  onSearchAction = {
                                      try {
@@ -102,7 +108,16 @@ index 018da3d..1e27dac 100644
 +                                        }
                                      } catch (_: Exception) {}
                                  },
-                                 onInteract = { state.isDpadMode = false },
+-                                onInteract = { state.isDpadMode = false },
++                                // inkOS-Patcher: tapping the search line always brings the keyboard back, even when
++                                // the field already has focus (e.g. after Back hid the keyboard).
++                                onInteract = {
++                                    state.isDpadMode = false
++                                    if (state.searchEnabled) keyboardController?.show()
++                                },
+                                 onCloseMenu = {
+                                     state.showContextMenu = false
+                                     state.showRenameOverlay = false
 diff --git a/app/src/main/java/com/github/gezimos/inkos/ui/DrawerReveal.kt b/app/src/main/java/com/github/gezimos/inkos/ui/DrawerReveal.kt
 new file mode 100644
 index 0000000..5f2fa28
