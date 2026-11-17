@@ -217,7 +217,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.APP_HUB_TOKEN }}
           TAG: inkos
-          NAME: inkOS (search-first patch)
+          NAME: inkOS (patched)
           SRC: ${{ steps.apk.outputs.path }}
           DEBUG: ${{ steps.apk.outputs.debug }}
           OUT: ${{ steps.rel.outputs.out }}
