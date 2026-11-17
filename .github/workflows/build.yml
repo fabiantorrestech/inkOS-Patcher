@@ -188,11 +188,14 @@ jobs:
           TAG: ${{ steps.rel.outputs.tag }}
         run: |
           {
-            echo "inkOS $TAG with one patch:"
+            echo "inkOS $TAG with two patches:"
             echo ""
             echo "- Hide until search: Settings > App Drawer > Search > **Show Apps** chooses when the app"
             echo "  drawer lists apps: Always (stock inkOS), While typing, or After Search key (default)."
             echo "  In After Search key mode the drawer stays empty until you type and press Search."
+            echo "- Page indicator options: Settings > Home, under **Enable Page Indicator**: Side"
+            echo "  (Auto / Left / Right), Auto-hide (Off / 1-10 s, fades out and back in), Fades To"
+            echo "  (Nothing / 10-90%), Opacity (10-100%) and Style (Classic / Pill). Defaults match stock."
             echo ""
             echo "Upstream: https://github.com/$UPSTREAM/releases/tag/$TAG"
           } > release-notes.md
@@ -225,7 +228,7 @@ jobs:
           fi
           cp "$SRC" inkOS.apk
           title="$NAME $OUT"
-          notes="Built by CI from ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}: inkOS ${OUT%-patched} with the hide-until-search patch, on $(date -u '+%Y-%m-%d %H:%M') UTC."
+          notes="Built by CI from ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}: inkOS ${OUT%-patched} with the hide-until-search and page-indicator-options patches, on $(date -u '+%Y-%m-%d %H:%M') UTC."
           if gh release view "$TAG" --repo "$HUB" > /dev/null 2>&1; then
             gh release upload "$TAG" inkOS.apk "$DEBUG" --repo "$HUB" --clobber
             gh release edit "$TAG" --repo "$HUB" --title "$title" --notes "$notes"
