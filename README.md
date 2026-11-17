@@ -1,6 +1,6 @@
 # inkOS-Patcher
 
-Builds [inkOS](https://github.com/gezimos/inkOS) releases with one extra patch:
+Builds [inkOS](https://github.com/gezimos/inkOS) releases with two extra patches:
 
 - **Hide until search: the app drawer stays empty until you search.** A new setting, Settings → App Drawer → Search → **Show Apps**, picks when the drawer lists apps:
 
@@ -9,6 +9,18 @@ Builds [inkOS](https://github.com/gezimos/inkOS) releases with one extra patch:
   | Always | right away (stock inkOS) |
   | While typing | once the search box has text, filtering as you type |
   | **After Search key** (default) | only after you type and press Search on the keyboard |
+
+- **Page indicator options: more control over the home page dots.** Five new rows in Settings → Home, under **Enable Page Indicator**:
+
+  | Setting | Choices |
+  | --- | --- |
+  | Page Indicator Side | **Auto** (stock: opposite the apps), Left, Right. Left and Right sit in the side margin, so they never cover an app name. |
+  | Page Indicator Auto-hide | **Off**, 1s, 2s, 5s, 10s. That long after the page changes, the dots fade out; they fade back in on the next swipe or when you return Home. Fades follow Android's animation speed, so with animations off (e-ink) they're instant. |
+  | Page Indicator Fades To | **Nothing** (0%) or 10–90%: how visible the dots stay after auto-hide |
+  | Page Indicator Opacity | 10–**100%** for the whole indicator |
+  | Page Indicator Style | **Classic** (stock), Pill (small dimmed dots, the current page as a long pill, on a light backing) |
+
+  Bold = default, which looks exactly like stock inkOS.
 
 Unofficial build, not made by the inkOS developer. Supports inkOS **v0.6 and later**.
 
@@ -53,6 +65,15 @@ Behavior details:
 - **Search bar switched off:** the drawer acts like stock inkOS, since there would be no way to reveal anything.
 - **Settings export and import:** the mode is saved in the inkOS settings file. Stock inkOS ignores it.
 
+### What the page-indicator-options patch changes
+
+- **New file `ui/PageIndicatorOptions.kt`.** The five settings, the placement and auto-hide fade logic, and the Pill dots.
+- **New file `res/values/strings_page_indicator.xml`.** The settings' strings.
+- **`HomeUI.kt`.** The page indicator call now goes through `PatchedPageIndicator` (one import, one call).
+- **`Prefs.kt` and `SettingsFragment.kt`.** Five stored settings (`PAGE_INDICATOR_SIDE`, `_AUTO_HIDE`, `_FADED_OPACITY`, `_OPACITY`, `_STYLE`) and five rows under Enable Page Indicator, greyed out while it's off.
+
+Only the page indicator beside the home apps changes. The bottom "Page Dots" widget keeps the stock look.
+
 ## Installing
 
 The app keeps inkOS's ID (`app.inkos`), so it replaces stock inkOS. Android can't install it over a copy signed with a different key, so the first time:
@@ -82,6 +103,7 @@ GitHub emails you that the run failed. Its summary lists the conflicting files. 
 ```bash
 cd ~/Documents/Developer/repos/inkOS-Patcher
 scripts/refresh-patch.sh ../inkOS v0.7      # v0.7 = the new inkOS release
+scripts/refresh-patch.sh ../inkOS v0.7 page-indicator-options   # then the other patch
 ```
 
 The script:
