@@ -23,3 +23,4 @@ Builds releases of [inkOS](https://github.com/gezimos/inkOS) (Kotlin/Compose e-i
 | Patch | What |
 | --- | --- |
 | `hide-until-search` | Settings > App Drawer > Search > "Show Apps": Always / While typing / After Search key (default). The normal drawer lists nothing until the chosen moment. |
+| `page-indicator-options` | Settings > Home, under "Enable Page Indicator": Side (Auto / Left / Right, in the side margin), Auto-hide (Off / 1 / 2 / 5 / 10 s, fades out 600 ms / in 250 ms), Fades To (Nothing / 10-90%), Opacity (10-100%), Style (Classic / Pill, the android_shortcut_hub dot look). Side counter only; the bottom Page Dots widget is untouched. |
