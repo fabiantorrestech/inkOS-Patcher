@@ -1,0 +1,735 @@
+From dff80d93e7541daf29c0cd1ea226d2e4caf280ca Mon Sep 17 00:00:00 2001
+From: fab <faibiantorrestech@gmail.com>
+Date: Fri, 20 Nov 2026 20:36:08 +0000
+Subject: [PATCH] Home: custom page sizes with draggable dividers
+ (inkOS-Patcher)
+
+Adds "Arrange pages" to the home apps / pages sheet (tap the "x/y apps"
+title in Edit Favorites). It lists every home slot in order with one
+divider per page break:
+- Drag a divider, or tap its arrows, to move apps between pages.
+  Dividers stop at their neighbours and at the top and bottom of the
+  list; two dividers together make an empty page.
+- X removes a divider, "+ Add page" adds an empty last page, "Even
+  split" restores the stock layout.
+- Save stores one size per page (e.g. "3,0,5") and the new page count.
+
+Home and the Edit Favorites dashed lines follow the saved sizes while
+they still match "Number of home apps" and "Number of pages"; changing
+either falls back to the stock even split. Logic lives in
+ui/HomePageLayout.kt and ui/PageLayoutEditor.kt; upstream files get
+small hooks only.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AeXNKn1J4RMNctKNJG3DJC
+---
+ .../com/github/gezimos/inkos/data/Prefs.kt    |   5 +
+ .../gezimos/inkos/helper/EditModeHelper.kt    |   6 +
+ .../github/gezimos/inkos/ui/AppsFragment.kt   |   1 +
+ .../github/gezimos/inkos/ui/HomeFragment.kt   |   6 +-
+ .../github/gezimos/inkos/ui/HomePageLayout.kt | 135 ++++++
+ .../gezimos/inkos/ui/PageLayoutEditor.kt      | 410 ++++++++++++++++++
+ .../github/gezimos/inkos/ui/compose/AppsUI.kt |  20 +-
+ .../github/gezimos/inkos/ui/compose/HomeUI.kt |   4 +-
+ .../main/res/values/strings_page_layout.xml   |  15 +
+ 9 files changed, 580 insertions(+), 22 deletions(-)
+ create mode 100644 app/src/main/java/com/github/gezimos/inkos/ui/HomePageLayout.kt
+ create mode 100644 app/src/main/java/com/github/gezimos/inkos/ui/PageLayoutEditor.kt
+ create mode 100644 app/src/main/res/values/strings_page_layout.xml
+
+diff --git a/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt b/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt
+index 8a46eb3..7786b9c 100644
+--- a/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt
++++ b/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt
+@@ -860,6 +860,11 @@ class Prefs(val context: Context) {
+         get() = prefs.getInt(HOME_PAGES_NUM, 3)
+         set(value) = prefs.edit { putInt(HOME_PAGES_NUM, value) }
+ 
++    // inkOS-Patcher: per-page sizes from Arrange Pages, e.g. "3,0,5" (see ui/HomePageLayout.kt)
++    var homePageSizes: String
++        get() = prefs.getString(com.github.gezimos.inkos.ui.HomePageLayout.PREF_KEY, "") ?: ""
++        set(value) = prefs.edit { putString(com.github.gezimos.inkos.ui.HomePageLayout.PREF_KEY, value) }
++
+     // ------------------
+     // ------------------
+     var lightTextColor: Int
+diff --git a/app/src/main/java/com/github/gezimos/inkos/helper/EditModeHelper.kt b/app/src/main/java/com/github/gezimos/inkos/helper/EditModeHelper.kt
+index 209a84e..a6cad39 100644
+--- a/app/src/main/java/com/github/gezimos/inkos/helper/EditModeHelper.kt
++++ b/app/src/main/java/com/github/gezimos/inkos/helper/EditModeHelper.kt
+@@ -1623,6 +1623,12 @@ object EditModeHelper {
+                     maxValue = Constants.MAX_HOME_PAGES
+                 )
+ 
++                // inkOS-Patcher: page-layout
++                com.github.gezimos.inkos.ui.ArrangePagesButton { pages ->
++                    homePages = pages
++                    if (vm != null) vm.setHomePagesNum(pages) else prefs.homePagesNum = pages
++                    onUpdate()
++                }
+             }
+         }
+     }
+diff --git a/app/src/main/java/com/github/gezimos/inkos/ui/AppsFragment.kt b/app/src/main/java/com/github/gezimos/inkos/ui/AppsFragment.kt
+index 018da3d..9e99242 100644
+--- a/app/src/main/java/com/github/gezimos/inkos/ui/AppsFragment.kt
++++ b/app/src/main/java/com/github/gezimos/inkos/ui/AppsFragment.kt
+@@ -199,6 +199,7 @@ class AppsFragment : Fragment() {
+                                 state.selectedFavorites.add(homeApp)
+                             }
+                         }
++                        com.github.gezimos.inkos.ui.HomePageLayout.draftApps = { state.selectedFavorites.toList() } // inkOS-Patcher: page-layout
+                     }
+                 }
+ 
+diff --git a/app/src/main/java/com/github/gezimos/inkos/ui/HomeFragment.kt b/app/src/main/java/com/github/gezimos/inkos/ui/HomeFragment.kt
+index e5514ec..aa28ede 100644
+--- a/app/src/main/java/com/github/gezimos/inkos/ui/HomeFragment.kt
++++ b/app/src/main/java/com/github/gezimos/inkos/ui/HomeFragment.kt
+@@ -251,9 +251,7 @@ class HomeFragmentCompose : Fragment() {
+                     val homeAppsBoundsState = remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+                     LocalDensity.current
+ 
+-                    val chunks = remember(fullRenderState.homeApps, fullRenderState.appsPerPage) {
+-                        fullRenderState.homeApps.chunked(fullRenderState.appsPerPage)
+-                    }
++                    val chunks = com.github.gezimos.inkos.ui.HomePageLayout.rememberPages(fullRenderState.homeApps, fullRenderState.appsPerPage, fullRenderState.totalPages) // inkOS-Patcher: page-layout
+                     val appsOnPage = remember(chunks, fullRenderState.currentPage) {
+                         chunks.getOrNull(fullRenderState.currentPage) ?: emptyList()
+                     }
+@@ -353,7 +351,7 @@ class HomeFragmentCompose : Fragment() {
+                                     appsOnPageSize = appsOnPage.size,
+                                     currentPage = fullRenderState.currentPage,
+                                     totalPages = fullRenderState.totalPages,
+-                                    appsPerPage = fullRenderState.appsPerPage,
++                                    appsPerPage = chunks.getOrNull(fullRenderState.currentPage - 1)?.size?.coerceAtLeast(1) ?: fullRenderState.appsPerPage, // inkOS-Patcher: page-layout
+                                     adjustPageBy = { delta -> try { adjustPageBy(delta, fullRenderState.totalPages) } catch (_: Exception) {} },
+                                     onAppClick = { index ->
+                                         val app = appsOnPage.getOrNull(index)
+diff --git a/app/src/main/java/com/github/gezimos/inkos/ui/HomePageLayout.kt b/app/src/main/java/com/github/gezimos/inkos/ui/HomePageLayout.kt
+new file mode 100644
+index 0000000..5aa8c47
+--- /dev/null
++++ b/app/src/main/java/com/github/gezimos/inkos/ui/HomePageLayout.kt
+@@ -0,0 +1,135 @@
++package com.github.gezimos.inkos.ui
++
++import android.content.Context
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableIntStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.drawBehind
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.unit.dp
++import com.github.gezimos.inkos.data.AppListItem
++import com.github.gezimos.inkos.data.Prefs
++
++/**
++ * inkOS-Patcher: custom home page sizes ("page-layout" patch).
++ *
++ * Stock inkOS splits the home slots evenly: ceil(slots / pages) per page. Arrange Pages
++ * (ui/PageLayoutEditor.kt) saves one size per page instead, e.g. "3,0,5" = 3 slots,
++ * an empty page, then 5 slots. A saved layout is used only while it still matches
++ * "Number of home apps" and "Number of pages"; change either one and Home falls back
++ * to the stock even split.
++ *
++ * A "boundary" is the slot index where a page after the first starts (one per divider).
++ */
++object HomePageLayout {
++    const val PREF_KEY = "HOME_PAGE_SIZES"
++
++    /** Bumped on every save so Compose readers re-read the layout. */
++    var version by mutableIntStateOf(0)
++        private set
++
++    /** The favorites being edited but not saved yet, in order (set by Edit Favorites). */
++    var draftApps: (() -> List<AppListItem>)? = null
++
++    fun bump() { version++ }
++
++    fun parse(raw: String?): List<Int>? {
++        if (raw.isNullOrBlank()) return null
++        return raw.split(',').map { it.trim().toIntOrNull() ?: return null }
++    }
++
++    fun encode(sizes: List<Int>): String = sizes.joinToString(",")
++
++    fun isValid(sizes: List<Int>?, slots: Int, pages: Int): Boolean =
++        sizes != null && pages >= 1 && sizes.size == pages && sizes.all { it >= 0 } && sizes.sum() == slots
++
++    /** Stock inkOS: ceil(slots / pages) per page, the remainder on later pages (some may be empty). */
++    fun evenSizes(slots: Int, pages: Int): List<Int> {
++        val p = pages.coerceAtLeast(1)
++        val per = if (slots <= 0) 0 else (slots + p - 1) / p
++        return List(p) { i -> (slots - i * per).coerceIn(0, per) }
++    }
++
++    /** The saved layout if it still fits [slots] and [pages], else null. */
++    fun savedSizes(context: Context, slots: Int, pages: Int): List<Int>? =
++        try {
++            parse(Prefs(context).homePageSizes)?.takeIf { isValid(it, slots, pages) }
++        } catch (_: Exception) { null }
++
++    fun sizesFor(context: Context, slots: Int, pages: Int): List<Int> =
++        savedSizes(context, slots, pages) ?: evenSizes(slots, pages)
++
++    fun save(context: Context, sizes: List<Int>) {
++        Prefs(context).homePageSizes = encode(sizes)
++        bump()
++    }
++
++    fun boundaries(sizes: List<Int>): List<Int> {
++        val out = ArrayList<Int>()
++        var acc = 0
++        for (i in 0 until sizes.size - 1) { acc += sizes[i]; out.add(acc) }
++        return out
++    }
++
++    fun sizesFromBoundaries(boundaries: List<Int>, slots: Int): List<Int> {
++        val edges = listOf(0) + boundaries + listOf(slots)
++        return edges.zipWithNext { a, b -> (b - a).coerceAtLeast(0) }
++    }
++
++    fun <T> split(items: List<T>, sizes: List<Int>): List<List<T>> {
++        var start = 0
++        return sizes.map { n ->
++            val from = start.coerceAtMost(items.size)
++            val to = (start + n).coerceAtMost(items.size)
++            start += n
++            items.subList(from, to).toList()
++        }
++    }
++
++    /** Home pages for [items]: the saved layout when it fits, else stock `chunked(appsPerPage)`. */
++    @Composable
++    fun <T> rememberPages(items: List<T>, appsPerPage: Int, totalPages: Int): List<List<T>> {
++        val context = LocalContext.current
++        val v = version
++        return remember(items, appsPerPage, totalPages, v) {
++            savedSizes(context, items.size, totalPages)?.let { split(items, it) }
++                ?: items.chunked(appsPerPage.coerceAtLeast(1))
++        }
++    }
++
++    /** Edit Favorites: how many page dividers sit right after favorite [favIndex]. */
++    @Composable
++    fun rememberBreaksAfter(favIndex: Int, slots: Int, pages: Int): Int {
++        val context = LocalContext.current
++        val v = version
++        val bounds = remember(slots, pages, v) {
++            try {
++                val p = Prefs(context)
++                boundaries(sizesFor(context, p.homeAppsNum, p.homePagesNum))
++            } catch (_: Exception) { emptyList() }
++        }
++        return bounds.count { it == favIndex + 1 }
++    }
++
++    /** Dashed line(s) under a row, one per divider (two or more = empty pages in between). */
++    fun pageBreakModifier(breaks: Int, color: Color): Modifier =
++        if (breaks <= 0) Modifier else Modifier.drawBehind {
++            val dashW = 6.dp.toPx()
++            val gap = 4.dp.toPx()
++            val sw = 1.dp.toPx()
++            val step = 3.dp.toPx()
++            for (k in 0 until breaks.coerceAtMost(4)) {
++                val y = size.height - k * step
++                var x = 0f
++                while (x < size.width) {
++                    drawLine(color, Offset(x, y), Offset((x + dashW).coerceAtMost(size.width), y), sw)
++                    x += dashW + gap
++                }
++            }
++        }
++}
+diff --git a/app/src/main/java/com/github/gezimos/inkos/ui/PageLayoutEditor.kt b/app/src/main/java/com/github/gezimos/inkos/ui/PageLayoutEditor.kt
+new file mode 100644
+index 0000000..a841aed
+--- /dev/null
++++ b/app/src/main/java/com/github/gezimos/inkos/ui/PageLayoutEditor.kt
+@@ -0,0 +1,410 @@
++package com.github.gezimos.inkos.ui
++
++import android.content.Context
++import androidx.compose.foundation.background
++import androidx.compose.foundation.border
++import androidx.compose.foundation.clickable
++import androidx.compose.foundation.gestures.detectVerticalDragGestures
++import androidx.compose.foundation.interaction.MutableInteractionSource
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.rememberScrollState
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.foundation.verticalScroll
++import androidx.compose.material.icons.Icons
++import androidx.compose.material.icons.rounded.Close
++import androidx.compose.material.icons.rounded.DragHandle
++import androidx.compose.material.icons.rounded.KeyboardArrowDown
++import androidx.compose.material.icons.rounded.KeyboardArrowUp
++import androidx.compose.material3.Icon
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableFloatStateOf
++import androidx.compose.runtime.mutableIntStateOf
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.rememberUpdatedState
++import androidx.compose.runtime.setValue
++import androidx.compose.runtime.toMutableStateList
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.graphicsLayer
++import androidx.compose.ui.graphics.vector.ImageVector
++import androidx.compose.ui.input.pointer.pointerInput
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.platform.LocalDensity
++import androidx.compose.ui.res.stringResource
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.Dp
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.window.Dialog
++import androidx.compose.ui.window.DialogProperties
++import androidx.compose.ui.zIndex
++import com.github.gezimos.inkos.R
++import com.github.gezimos.inkos.data.AppListItem
++import com.github.gezimos.inkos.data.Constants
++import com.github.gezimos.inkos.data.Prefs
++import com.github.gezimos.inkos.helper.utils.VibrationHelper
++import com.github.gezimos.inkos.style.SettingsTheme
++import com.github.gezimos.inkos.style.Theme
++import kotlin.math.roundToInt
++
++/*
++ * inkOS-Patcher: Arrange Pages ("page-layout" patch).
++ *
++ * Lists the home slots in order with one divider per page break. Drag a divider (or tap
++ * its arrows) to move apps between pages. Dividers stop at their neighbours and at the
++ * top and bottom of the list; two dividers together make an empty page. Save stores the
++ * sizes (see HomePageLayout) and the new page count.
++ */
++
++/** Button for the "home apps and pages" sheet. [onPagesChanged] gets the page count after Save. */
++@Composable
++fun ArrangePagesButton(onPagesChanged: (Int) -> Unit) {
++    var open by remember { mutableStateOf(false) }
++    val textColor = Theme.colors.text
++    Box(
++        modifier = Modifier
++            .fillMaxWidth()
++            .border(1.dp, textColor, RoundedCornerShape(8.dp))
++            .clickable { open = true }
++            .padding(vertical = 12.dp, horizontal = 16.dp),
++        contentAlignment = Alignment.Center
++    ) {
++        Text(text = stringResource(R.string.page_layout_open), style = SettingsTheme.typography.item, color = textColor)
++    }
++    if (open) {
++        PageLayoutEditor(
++            onDismiss = { open = false },
++            onSaved = { pages ->
++                open = false
++                onPagesChanged(pages)
++            }
++        )
++    }
++}
++
++private fun slotLabel(context: Context, app: AppListItem?): Pair<String, Boolean> {
++    val pkg = app?.activityPackage.orEmpty()
++    return when {
++        app == null || pkg.isEmpty() -> context.getString(R.string.page_layout_empty_slot) to true
++        pkg == Constants.SEPARATOR_EMPTY -> context.getString(R.string.separator_empty) to true
++        pkg == Constants.SEPARATOR_EM_DASH -> context.getString(R.string.separator_em_dash) to true
++        pkg == Constants.SEPARATOR_DOTS -> context.getString(R.string.separator_dots) to true
++        else -> app.label.ifBlank { pkg } to false
++    }
++}
++
++private fun tick() {
++    try { VibrationHelper.trigger(VibrationHelper.Effect.SELECT) } catch (_: Exception) {}
++}
++
++@Composable
++fun PageLayoutEditor(onDismiss: () -> Unit, onSaved: (Int) -> Unit) {
++    val context = LocalContext.current
++    val density = LocalDensity.current
++    val prefs = remember { Prefs(context) }
++    val slots = remember { prefs.homeAppsNum.coerceAtLeast(0) }
++    val maxPages = remember {
++        val max = try {
++            Constants.updateMaxHomePages(context)
++            Constants.MAX_HOME_PAGES
++        } catch (_: Exception) { Constants.DEFAULT_MAX_HOME_PAGES }
++        max.coerceAtLeast(1)
++    }
++    val labels = remember {
++        val draft = try { HomePageLayout.draftApps?.invoke() } catch (_: Exception) { null }
++        List(slots) { i ->
++            val app = if (draft != null) draft.getOrNull(i) else try { prefs.getHomeAppModel(i) } catch (_: Exception) { null }
++            slotLabel(context, app)
++        }
++    }
++    // One boundary per divider: the slot index where the next page starts. Always sorted.
++    val bounds = remember {
++        val pages = prefs.homePagesNum.coerceIn(1, maxPages)
++        HomePageLayout.boundaries(HomePageLayout.sizesFor(context, slots, pages)).toMutableStateList()
++    }
++    var dragIndex by remember { mutableStateOf<Int?>(null) }
++    var dragOffset by remember { mutableFloatStateOf(0f) }
++    var scrollToEndRequest by remember { mutableIntStateOf(0) }
++    val scrollState = rememberScrollState()
++    val rowHeight = 48.dp
++    val rowPx = with(density) { rowHeight.toPx() }
++    val textColor = Theme.colors.text
++    val bg = Theme.colors.background
++
++    fun lo(i: Int) = if (i <= 0) 0 else bounds[i - 1]
++    fun hi(i: Int) = if (i >= bounds.lastIndex) slots else bounds[i + 1]
++    fun moveTo(i: Int, target: Int) {
++        if (i !in bounds.indices) return
++        val clamped = target.coerceIn(lo(i), hi(i))
++        if (clamped != bounds[i]) {
++            bounds[i] = clamped
++            tick()
++        }
++    }
++
++    LaunchedEffect(scrollToEndRequest) {
++        if (scrollToEndRequest > 0) scrollState.animateScrollTo(scrollState.maxValue)
++    }
++
++    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
++        Column(
++            modifier = Modifier
++                .fillMaxSize()
++                .background(bg)
++                .padding(horizontal = 16.dp, vertical = 12.dp)
++        ) {
++            Row(
++                modifier = Modifier.fillMaxWidth(),
++                horizontalArrangement = Arrangement.SpaceBetween,
++                verticalAlignment = Alignment.CenterVertically
++            ) {
++                HeaderAction(stringResource(R.string.page_layout_cancel)) { onDismiss() }
++                Text(text = stringResource(R.string.page_layout_title), style = SettingsTheme.typography.title, color = textColor)
++                HeaderAction(stringResource(R.string.page_layout_save)) {
++                    val sizes = HomePageLayout.sizesFromBoundaries(bounds.toList(), slots)
++                    HomePageLayout.save(context, sizes)
++                    onSaved(sizes.size)
++                }
++            }
++            Text(
++                text = stringResource(R.string.page_layout_hint),
++                style = SettingsTheme.typography.body,
++                color = textColor.copy(alpha = 0.7f),
++                modifier = Modifier.padding(vertical = 8.dp)
++            )
++
++            Column(
++                modifier = Modifier
++                    .weight(1f)
++                    .fillMaxWidth()
++                    .verticalScroll(scrollState)
++            ) {
++                PageLine(text = stringResource(R.string.page_layout_page, 1), height = rowHeight)
++                var pageIsEmpty = true
++                for (p in 0..slots) {
++                    for (i in bounds.indices) {
++                        if (bounds[i] != p) continue
++                        if (pageIsEmpty) EmptyPageRow(rowHeight)
++                        val dragging = dragIndex == i
++                        val offset = if (dragging) {
++                            dragOffset.coerceIn((lo(i) - bounds[i]) * rowPx, (hi(i) - bounds[i]) * rowPx)
++                        } else 0f
++                        androidx.compose.runtime.key("divider_$i") {
++                            DividerRow(
++                                text = stringResource(R.string.page_layout_page, i + 2),
++                                height = rowHeight,
++                                offsetY = offset,
++                                dragging = dragging,
++                                canUp = bounds[i] > lo(i),
++                                canDown = bounds[i] < hi(i),
++                                onDragStart = {
++                                    dragIndex = i
++                                    dragOffset = 0f
++                                },
++                                onDrag = { amount -> dragOffset += amount },
++                                onDragEnd = {
++                                    val from = dragIndex
++                                    if (from != null && from in bounds.indices) {
++                                        moveTo(from, bounds[from] + (dragOffset / rowPx).roundToInt())
++                                    }
++                                    dragIndex = null
++                                    dragOffset = 0f
++                                },
++                                onUp = { moveTo(i, bounds[i] - 1) },
++                                onDown = { moveTo(i, bounds[i] + 1) },
++                                onRemove = {
++                                    if (i in bounds.indices) {
++                                        bounds.removeAt(i)
++                                        tick()
++                                    }
++                                }
++                            )
++                        }
++                        pageIsEmpty = true
++                    }
++                    if (p < slots) {
++                        val (label, dim) = labels[p]
++                        SlotRow(label = label, dim = dim, height = rowHeight)
++                        pageIsEmpty = false
++                    }
++                }
++                if (pageIsEmpty) EmptyPageRow(rowHeight)
++            }
++
++            Text(
++                text = stringResource(R.string.page_layout_count, bounds.size + 1, maxPages),
++                style = SettingsTheme.typography.body,
++                color = textColor.copy(alpha = 0.7f),
++                modifier = Modifier.padding(top = 8.dp)
++            )
++            Row(
++                modifier = Modifier
++                    .fillMaxWidth()
++                    .padding(top = 8.dp),
++                horizontalArrangement = Arrangement.spacedBy(12.dp)
++            ) {
++                FooterButton(
++                    text = stringResource(R.string.page_layout_add),
++                    enabled = bounds.size + 1 < maxPages,
++                    modifier = Modifier.weight(1f)
++                ) {
++                    bounds.add(slots) // new empty last page; drag it up to fill it
++                    tick()
++                    scrollToEndRequest++
++                }
++                FooterButton(
++                    text = stringResource(R.string.page_layout_even),
++                    enabled = true,
++                    modifier = Modifier.weight(1f)
++                ) {
++                    val even = HomePageLayout.boundaries(HomePageLayout.evenSizes(slots, bounds.size + 1))
++                    bounds.clear()
++                    bounds.addAll(even)
++                    tick()
++                }
++            }
++        }
++    }
++}
++
++@Composable
++private fun HeaderAction(text: String, onClick: () -> Unit) {
++    Text(
++        text = text,
++        style = SettingsTheme.typography.item,
++        color = Theme.colors.text,
++        modifier = Modifier
++            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { onClick() }
++            .padding(vertical = 8.dp, horizontal = 4.dp)
++    )
++}
++
++@Composable
++private fun FooterButton(text: String, enabled: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
++    val color = Theme.colors.text.copy(alpha = if (enabled) 1f else 0.35f)
++    Box(
++        modifier = modifier
++            .border(1.dp, color, RoundedCornerShape(8.dp))
++            .clickable(enabled = enabled) { onClick() }
++            .padding(vertical = 12.dp),
++        contentAlignment = Alignment.Center
++    ) {
++        Text(text = text, style = SettingsTheme.typography.item, color = color, maxLines = 1)
++    }
++}
++
++@Composable
++private fun PageLine(text: String, height: Dp) {
++    val color = Theme.colors.text.copy(alpha = 0.6f)
++    Row(
++        modifier = Modifier
++            .fillMaxWidth()
++            .height(height),
++        verticalAlignment = Alignment.CenterVertically
++    ) {
++        Text(text = text, style = SettingsTheme.typography.item, color = color, maxLines = 1)
++        Spacer(Modifier.size(8.dp))
++        Box(Modifier.weight(1f).height(1.dp).background(color))
++    }
++}
++
++@Composable
++private fun SlotRow(label: String, dim: Boolean, height: Dp) {
++    val color = Theme.colors.text
++    Box(
++        modifier = Modifier
++            .fillMaxWidth()
++            .height(height)
++            .padding(start = 32.dp),
++        contentAlignment = Alignment.CenterStart
++    ) {
++        Text(
++            text = label,
++            style = SettingsTheme.typography.item,
++            color = if (dim) color.copy(alpha = 0.5f) else color,
++            maxLines = 1,
++            overflow = TextOverflow.Ellipsis
++        )
++    }
++}
++
++@Composable
++private fun EmptyPageRow(height: Dp) {
++    SlotRow(label = stringResource(R.string.page_layout_empty_page), dim = true, height = height)
++}
++
++@Composable
++private fun DividerRow(
++    text: String,
++    height: Dp,
++    offsetY: Float,
++    dragging: Boolean,
++    canUp: Boolean,
++    canDown: Boolean,
++    onDragStart: () -> Unit,
++    onDrag: (Float) -> Unit,
++    onDragEnd: () -> Unit,
++    onUp: () -> Unit,
++    onDown: () -> Unit,
++    onRemove: () -> Unit
++) {
++    val textColor = Theme.colors.text
++    val bg = Theme.colors.background
++    val fg = if (dragging) bg else textColor
++    val start by rememberUpdatedState(onDragStart)
++    val drag by rememberUpdatedState(onDrag)
++    val end by rememberUpdatedState(onDragEnd)
++    Row(
++        modifier = Modifier
++            .zIndex(if (dragging) 1f else 0f)
++            .graphicsLayer { translationY = offsetY }
++            .fillMaxWidth()
++            .height(height)
++            .background(if (dragging) textColor else bg, RoundedCornerShape(8.dp))
++            .pointerInput(Unit) {
++                detectVerticalDragGestures(
++                    onDragStart = { start() },
++                    onDragEnd = { end() },
++                    onDragCancel = { end() }
++                ) { change, amount ->
++                    change.consume()
++                    drag(amount)
++                }
++            }
++            .padding(horizontal = 4.dp),
++        verticalAlignment = Alignment.CenterVertically
++    ) {
++        Icon(imageVector = Icons.Rounded.DragHandle, contentDescription = null, tint = fg)
++        Spacer(Modifier.size(8.dp))
++        Text(text = text, style = SettingsTheme.typography.item, color = fg, maxLines = 1)
++        Spacer(Modifier.size(8.dp))
++        Box(Modifier.weight(1f).height(2.dp).background(fg))
++        SmallIcon(Icons.Rounded.KeyboardArrowUp, fg, canUp, onUp)
++        SmallIcon(Icons.Rounded.KeyboardArrowDown, fg, canDown, onDown)
++        SmallIcon(Icons.Rounded.Close, fg, true, onRemove)
++    }
++}
++
++@Composable
++private fun SmallIcon(icon: ImageVector, tint: androidx.compose.ui.graphics.Color, enabled: Boolean, onClick: () -> Unit) {
++    Box(
++        modifier = Modifier
++            .size(40.dp)
++            .clickable(enabled = enabled, indication = null, interactionSource = remember { MutableInteractionSource() }) { onClick() },
++        contentAlignment = Alignment.Center
++    ) {
++        Icon(imageVector = icon, contentDescription = null, tint = tint.copy(alpha = if (enabled) 1f else 0.3f))
++    }
++}
+diff --git a/app/src/main/java/com/github/gezimos/inkos/ui/compose/AppsUI.kt b/app/src/main/java/com/github/gezimos/inkos/ui/compose/AppsUI.kt
+index b918a3e..fc8d43b 100644
+--- a/app/src/main/java/com/github/gezimos/inkos/ui/compose/AppsUI.kt
++++ b/app/src/main/java/com/github/gezimos/inkos/ui/compose/AppsUI.kt
+@@ -408,21 +408,11 @@ fun AppsDrawerLayout(
+                                 val dimWhenMaxAndUnselected = state.isEditFavoritesMode && selectedFavoritesCount >= maxFavorites && !isChecked
+                                 val isDragging = state.isEditFavoritesMode && state.draggingIndex != null && state.selectedFavorites.getOrNull(state.draggingIndex!!)?.let { it.activityPackage == app.activityPackage && it.activityClass == app.activityClass } == true
+                                 val favIndex = if (isChecked) state.selectedFavorites.indexOfFirst { it.activityPackage == app.activityPackage && it.activityClass == app.activityClass } else -1
+-                                val showPageSep = state.isEditFavoritesMode && homePagesNum > 1 && maxFavorites > 0 && isChecked && favIndex >= 0 && run {
+-                                    val appsPerPage = maxFavorites / homePagesNum
+-                                    appsPerPage > 0 && (favIndex + 1) % appsPerPage == 0 && (favIndex + 1) < maxFavorites
+-                                }
+-                                val sepColor = if (showPageSep) Theme.colors.text.copy(alpha = 0.3f) else Color.Transparent
+-                                val sepMod = if (showPageSep) Modifier.drawBehind {
+-                                    val dashW = 6.dp.toPx()
+-                                    val gap = 4.dp.toPx()
+-                                    val sw = 1.dp.toPx()
+-                                    var x = 0f
+-                                    while (x < size.width) {
+-                                        drawLine(sepColor, Offset(x, size.height), Offset((x + dashW).coerceAtMost(size.width), size.height), sw)
+-                                        x += dashW + gap
+-                                    }
+-                                } else Modifier
++                                // inkOS-Patcher: page-layout. One dashed line per page divider after this favorite.
++                                val pageBreaks = if (state.isEditFavoritesMode && maxFavorites > 0 && isChecked && favIndex >= 0) {
++                                    com.github.gezimos.inkos.ui.HomePageLayout.rememberBreaksAfter(favIndex, maxFavorites, homePagesNum)
++                                } else 0
++                                val sepMod = com.github.gezimos.inkos.ui.HomePageLayout.pageBreakModifier(pageBreaks, Theme.colors.text.copy(alpha = 0.3f))
+ 
+                                 AppItem(
+                                     app = app,
+diff --git a/app/src/main/java/com/github/gezimos/inkos/ui/compose/HomeUI.kt b/app/src/main/java/com/github/gezimos/inkos/ui/compose/HomeUI.kt
+index c82a0ba..428975c 100644
+--- a/app/src/main/java/com/github/gezimos/inkos/ui/compose/HomeUI.kt
++++ b/app/src/main/java/com/github/gezimos/inkos/ui/compose/HomeUI.kt
+@@ -2970,9 +2970,7 @@ private fun HomeAppsPager(
+     val screenScale = rememberScreenScale()
+     val scaledAppTextSize = state.appTextSize * screenScale
+     val appsPerPage = state.appsPerPage.coerceAtLeast(1)
+-    val chunks = remember(state.homeApps, appsPerPage) {
+-        state.homeApps.chunked(appsPerPage)
+-    }
++    val chunks = com.github.gezimos.inkos.ui.HomePageLayout.rememberPages(state.homeApps, appsPerPage, state.totalPages) // inkOS-Patcher: page-layout
+     val pageIndex = state.currentPage.coerceIn(0, maxOf(chunks.size - 1, 0))
+     val appsOnPage = chunks.getOrNull(pageIndex) ?: emptyList()
+     val textAlign = when (state.homeAlignment) {
+diff --git a/app/src/main/res/values/strings_page_layout.xml b/app/src/main/res/values/strings_page_layout.xml
+new file mode 100644
+index 0000000..76378a8
+--- /dev/null
++++ b/app/src/main/res/values/strings_page_layout.xml
+@@ -0,0 +1,15 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- inkOS-Patcher: page-layout patch. Kept out of strings.xml so upstream edits never conflict. -->
++<resources>
++    <string name="page_layout_open">Arrange pages</string>
++    <string name="page_layout_title">Arrange Pages</string>
++    <string name="page_layout_hint">Drag a divider, or tap its arrows, to move apps between pages. Two dividers together make an empty page.</string>
++    <string name="page_layout_page">Page %1$d</string>
++    <string name="page_layout_empty_page">(empty page)</string>
++    <string name="page_layout_empty_slot">(empty slot)</string>
++    <string name="page_layout_add">+ Add page</string>
++    <string name="page_layout_even">Even split</string>
++    <string name="page_layout_save">Save</string>
++    <string name="page_layout_cancel">Cancel</string>
++    <string name="page_layout_count">%1$d of %2$d pages</string>
++</resources>
+-- 
+2.43.0
+
