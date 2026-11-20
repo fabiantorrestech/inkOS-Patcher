@@ -214,12 +214,14 @@ jobs:
               echo "**Test build** from branch \`$GITHUB_REF_NAME\` ($GITHUB_SHA). Not sent to the app hub."
               echo ""
             fi
-            echo "inkOS $TAG with four patches:"
+            echo "inkOS $TAG with five patches:"
             echo ""
             echo "- App drawer toggle: Settings > App Drawer > **Enable App Drawer** (default On). Off makes"
             echo "  every gesture, key and shortcut that opens the drawer do nothing. Search still works."
             echo "- Page layout: Edit Favorites > tap the **x/y apps** title > **Arrange pages**. Drag page"
             echo "  dividers to choose how many apps each Home page gets, including empty pages."
+            echo "- Settings backup: patcher settings are saved in their own section of backups and theme"
+            echo "  exports, so the same file restores cleanly in stock inkOS (stock settings, no empty pages)."
             echo "- Hide until search: Settings > App Drawer > Search > **Show Apps** chooses when the app"
             echo "  drawer lists apps: Always (stock inkOS), While typing, or After Search key (default)."
             echo "  In After Search key mode the drawer stays empty until you type and press Search."
@@ -260,7 +262,7 @@ jobs:
           fi
           cp "$SRC" inkOS.apk
           title="$NAME $OUT"
-          notes="Built by CI from ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}: inkOS ${OUT%-patched} with the app-drawer-toggle, hide-until-search, page-indicator-options and page-layout patches, on $(date -u '+%Y-%m-%d %H:%M') UTC."
+          notes="Built by CI from ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}: inkOS ${OUT%-patched} with the app-drawer-toggle, hide-until-search, page-indicator-options, page-layout and settings-backup patches, on $(date -u '+%Y-%m-%d %H:%M') UTC."
           if gh release view "$TAG" --repo "$HUB" > /dev/null 2>&1; then
             gh release upload "$TAG" inkOS.apk "$DEBUG" --repo "$HUB" --clobber
             gh release edit "$TAG" --repo "$HUB" --title "$title" --notes "$notes"
