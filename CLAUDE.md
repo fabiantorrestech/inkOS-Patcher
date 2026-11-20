@@ -6,7 +6,7 @@ Builds releases of [inkOS](https://github.com/gezimos/inkOS) (Kotlin/Compose e-i
 
 - `patches/*.patch`: one `git format-patch` file per feature, applied in name order with `git am -3` on an upstream release tag. Never edit by hand; regenerate with `scripts/refresh-patch.sh`.
 - `scripts/refresh-patch.sh`: rebases a patch branch onto a new inkOS tag, builds, re-exports the patch.
-- `.github/workflows/build.yml`: daily CI build of the newest inkOS release, signed with PERSONAL, published here and to the `fabiantorrestech/android-apps` hub (tag `inkos`, asset `inkOS.apk`).
+- `.github/workflows/build.yml`: `test` input (e.g. `test1`) publishes pre-release `<version>-patched-<name>` with release + debug APKs and skips the hub. Otherwise: daily CI build of the newest inkOS release, signed with PERSONAL, published here and to the `fabiantorrestech/android-apps` hub (tag `inkos`, asset `inkOS.apk`).
 
 ## Rules
 
@@ -22,5 +22,6 @@ Builds releases of [inkOS](https://github.com/gezimos/inkOS) (Kotlin/Compose e-i
 
 | Patch | What |
 | --- | --- |
+| `app-drawer-toggle` | Settings > App Drawer > "Enable App Drawer" (default On). Off: the App Drawer action, Menu key, Backspace on Home, the App Drawer home shortcut and the OPEN_APP_DRAWER intent do nothing. Search action and type-to-search still work. |
 | `hide-until-search` | Settings > App Drawer > Search > "Show Apps": Always / While typing / After Search key (default). The normal drawer lists nothing until the chosen moment. |
 | `page-indicator-options` | Settings > Home, under "Enable Page Indicator": Side (Auto / Left / Right, in the side margin), Auto-hide (Off / 1 / 2 / 5 / 10 s, fades out 600 ms / in 250 ms), Fades To (Nothing / 10-90%), Opacity (10-100%), Style (Classic / Pill, the android_shortcut_hub dot look). Side counter only; the bottom Page Dots widget is untouched. |
