@@ -3,7 +3,7 @@
 #
 # Usage:  scripts/refresh-patch.sh <path to inkOS checkout> <release tag, e.g. v0.7> [patch name]
 #
-# Patch names: hide-until-search (default), page-indicator-options, app-drawer-toggle, page-layout.
+# Patch names: hide-until-search (default), page-indicator-options, app-drawer-toggle, page-layout, settings-backup.
 # Each patch lives as ONE commit on branch patch/<name> in the local inkOS clone.
 # If the rebase stops on a conflict: fix the files, `git add` them, `git rebase --continue`,
 # then run this script again with the same arguments.

@@ -1,6 +1,16 @@
 # inkOS-Patcher
 
-Builds [inkOS](https://github.com/gezimos/inkOS) releases with four extra patches:
+Builds [inkOS](https://github.com/gezimos/inkOS) releases with five extra patches:
+
+- **Settings backup: backups that work in both apps.** Settings → Backup & Restore files from the patched app also restore cleanly in stock inkOS:
+
+  | Restore a backup from… | …into patched inkOS | …into stock inkOS |
+  | --- | --- | --- |
+  | Patched (this version or later) | Everything, including patcher settings | Stock settings. Patcher settings are skipped. Home keeps your apps, in order, on the non-empty pages, split evenly (no empty pages) |
+  | Patched (older) | Everything, as before | Stock settings (patcher settings are stored but unused) |
+  | Stock | Stock settings, patcher settings at defaults | Everything |
+
+  Theme exports work the same way for the patcher's look/layout settings (page indicator, page layout, Show Apps).
 
 - **Page layout: choose how many apps each Home page gets.** In Edit Favorites, tap the **x/y apps** title, then **Arrange pages**. It lists your home slots in order with a divider between pages:
 
@@ -64,6 +74,22 @@ Daily at 09:00 UTC, or when you press "Run workflow"
 ```
 
 A patch is a list of edits, like "in this file, replace this line with that one." Each new inkOS release gets a fresh copy of the official code, and the edits are applied on top. Applying only fails when inkOS itself changed the same lines the patch edits.
+
+### What the settings-backup patch changes
+
+- **New file `data/PatcherBackup.kt`.** Which settings belong to the patcher, the vanilla-safe fallbacks, and packing / unpacking the `"inkos_patcher"` section:
+
+  ```json
+  "HOME_PAGES_NUM": 2,
+  "inkos_patcher": {
+    "format": 1,
+    "prefs": { "APP_DRAWER_ENABLED": false, "HOME_PAGE_SIZES": "3,0,5", "PAGE_INDICATOR_STYLE": 1 },
+    "overrides": { "HOME_PAGES_NUM": 3 }
+  }
+  ```
+
+  Stock inkOS's importer skips nested values, so it never sees the patcher settings. It reads the top-level `HOME_PAGES_NUM` (2 non-empty pages). The patched importer runs the stock import, then applies `prefs` and `overrides` (known keys only).
+- **`Prefs.kt`.** Four one-line hooks: full backup, full restore, theme export, theme import.
 
 ### What the page-layout patch changes
 
