@@ -1,6 +1,18 @@
 # inkOS-Patcher
 
-Builds [inkOS](https://github.com/gezimos/inkOS) releases with three extra patches:
+Builds [inkOS](https://github.com/gezimos/inkOS) releases with four extra patches:
+
+- **Page layout: choose how many apps each Home page gets.** In Edit Favorites, tap the **x/y apps** title, then **Arrange pages**. It lists your home slots in order with a divider between pages:
+
+  | Action | How |
+  | --- | --- |
+  | Move apps between pages | Drag a divider up or down, or tap its ▲ ▼ arrows |
+  | Empty page | Put two dividers next to each other (also works at the very top or bottom) |
+  | Add a page | **+ Add page** adds an empty last page; drag its divider up |
+  | Remove a page | Tap a divider's ✕ (its apps join the page above) |
+  | Back to stock | **Even split** |
+
+  Dividers can't pass each other or leave the list. **Save** applies the layout to Home and to the dashed lines in Edit Favorites. Changing "Number of home apps" or "Number of pages" afterwards goes back to the stock even split.
 
 - **App drawer toggle: turn the app drawer off.** A new switch, Settings → App Drawer → **Enable App Drawer** (default On). When Off, everything that opens the drawer to browse apps does nothing: the "App Drawer" action on any gesture or shortcut, the Menu key and Backspace on Home, the "App Drawer" home shortcut, and the open-drawer intent. The **Search** action and typing on Home still open search (what it lists follows Show Apps below). Settings and the home-app, favorites and hidden-app pickers still work.
 
@@ -52,6 +64,15 @@ Daily at 09:00 UTC, or when you press "Run workflow"
 ```
 
 A patch is a list of edits, like "in this file, replace this line with that one." Each new inkOS release gets a fresh copy of the official code, and the edits are applied on top. Applying only fails when inkOS itself changed the same lines the patch edits.
+
+### What the page-layout patch changes
+
+- **New file `ui/HomePageLayout.kt`.** Reading, checking and saving the page sizes, and splitting the home apps by them.
+- **New file `ui/PageLayoutEditor.kt`.** The Arrange Pages screen and its button.
+- **New file `res/values/strings_page_layout.xml`.** Its strings.
+- **`HomeFragment.kt`, `HomeUI.kt`.** `chunked(appsPerPage)` becomes `HomePageLayout.rememberPages(...)` (one line each), plus the D-pad "previous page" index.
+- **`AppsUI.kt`, `AppsFragment.kt`.** Edit Favorites' dashed lines follow the layout; Arrange Pages sees your unsaved picks.
+- **`Prefs.kt`, `EditModeHelper.kt`.** One stored setting (`HOME_PAGE_SIZES`) and the Arrange pages button in the home apps / pages sheet.
 
 ### What the app-drawer-toggle patch changes
 
