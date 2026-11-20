@@ -1,0 +1,159 @@
+From e40a3b6d70c7f730483bee0b078c0a7c817fc34a Mon Sep 17 00:00:00 2001
+From: fab <faibiantorrestech@gmail.com>
+Date: Fri, 20 Nov 2026 19:17:49 +0000
+Subject: [PATCH] Drawer: master On/Off switch for the app drawer
+ (inkOS-Patcher)
+
+Adds Settings > App Drawer > "Enable App Drawer" (default On). When Off,
+everything that opens the drawer to browse apps does nothing:
+- the "App Drawer" action on any gesture, shortcut icon or key mapping
+- the Menu key and Backspace on Home
+- the "App Drawer" home shortcut and the OPEN_APP_DRAWER intent
+
+The Search action and typing on Home still open search. Settings and the
+home-app, favorites and hidden-app pickers are unchanged. Logic lives in
+ui/AppDrawerToggle.kt; upstream files get one-line hooks only.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AeXNKn1J4RMNctKNJG3DJC
+---
+ .../com/github/gezimos/inkos/MainActivity.kt  |  5 ++++-
+ .../com/github/gezimos/inkos/data/Prefs.kt    |  5 +++++
+ .../inkos/data/repository/AppsRepository.kt   |  1 +
+ .../gezimos/inkos/ui/AppDrawerToggle.kt       | 21 +++++++++++++++++++
+ .../gezimos/inkos/ui/SettingsFragment.kt      |  6 ++++++
+ .../gezimos/inkos/ui/compose/GestureHelper.kt |  1 +
+ .../res/values/strings_app_drawer_toggle.xml  |  6 ++++++
+ 7 files changed, 44 insertions(+), 1 deletion(-)
+ create mode 100644 app/src/main/java/com/github/gezimos/inkos/ui/AppDrawerToggle.kt
+ create mode 100644 app/src/main/res/values/strings_app_drawer_toggle.xml
+
+diff --git a/app/src/main/java/com/github/gezimos/inkos/MainActivity.kt b/app/src/main/java/com/github/gezimos/inkos/MainActivity.kt
+index 53db4cb..a3cc8af 100644
+--- a/app/src/main/java/com/github/gezimos/inkos/MainActivity.kt
++++ b/app/src/main/java/com/github/gezimos/inkos/MainActivity.kt
+@@ -193,6 +193,7 @@ class MainActivity : AppCompatActivity() {
+             KeyEvent.KEYCODE_MENU -> {
+                 when (navController.currentDestination?.id) {
+                     R.id.mainFragment -> {
++                        if (com.github.gezimos.inkos.ui.AppDrawerToggle.isEnabled(this)) // inkOS-Patcher: app-drawer-toggle
+                         this.findNavController(R.id.nav_host_fragment)
+                             .navigate(R.id.action_mainFragment_to_appListFragment)
+                         true
+@@ -322,7 +323,8 @@ class MainActivity : AppCompatActivity() {
+                 if (event.keyCode == KeyEvent.KEYCODE_DEL) {
+                     try { viewModel.emitBackspaceEvent() } catch (_: Exception) {}
+                     try {
+-                        if (::navController.isInitialized && navController.currentDestination?.id == R.id.mainFragment) {
++                        if (::navController.isInitialized && navController.currentDestination?.id == R.id.mainFragment &&
++                            com.github.gezimos.inkos.ui.AppDrawerToggle.isEnabled(this)) { // inkOS-Patcher: app-drawer-toggle
+                             navController.navigate(R.id.action_mainFragment_to_appListFragment)
+                         }
+                     } catch (_: Exception) {}
+@@ -344,6 +346,7 @@ class MainActivity : AppCompatActivity() {
+         if (!::navController.isInitialized) return
+         when (intent.action) {
+             Constants.ACTION_OPEN_APP_DRAWER -> {
++                if (!com.github.gezimos.inkos.ui.AppDrawerToggle.isEnabled(this)) return // inkOS-Patcher: app-drawer-toggle
+                 try { navController.navigate(R.id.appListFragment) } catch (_: Exception) {}
+                 return
+             }
+diff --git a/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt b/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt
+index 8a46eb3..7342a18 100644
+--- a/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt
++++ b/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt
+@@ -1556,6 +1556,11 @@ class Prefs(val context: Context) {
+         get() = prefs.getInt(Constants.PrefKeys.APP_DRAWER_ALIGNMENT, 0)
+         set(value) = prefs.edit { putInt(Constants.PrefKeys.APP_DRAWER_ALIGNMENT, value.coerceIn(0, 2)) }
+ 
++    // inkOS-Patcher: master switch for the app drawer (see ui/AppDrawerToggle.kt)
++    var appDrawerEnabled: Boolean
++        get() = prefs.getBoolean(com.github.gezimos.inkos.ui.AppDrawerToggle.PREF_KEY, com.github.gezimos.inkos.ui.AppDrawerToggle.DEFAULT)
++        set(value) = prefs.edit { putBoolean(com.github.gezimos.inkos.ui.AppDrawerToggle.PREF_KEY, value) }
++
+     var appDrawerSearchEnabled: Boolean
+         get() = prefs.getBoolean(Constants.PrefKeys.APP_DRAWER_SEARCH_ENABLED, true)
+         set(value) = prefs.edit { putBoolean(Constants.PrefKeys.APP_DRAWER_SEARCH_ENABLED, value) }
+diff --git a/app/src/main/java/com/github/gezimos/inkos/data/repository/AppsRepository.kt b/app/src/main/java/com/github/gezimos/inkos/data/repository/AppsRepository.kt
+index 657c424..963f15e 100644
+--- a/app/src/main/java/com/github/gezimos/inkos/data/repository/AppsRepository.kt
++++ b/app/src/main/java/com/github/gezimos/inkos/data/repository/AppsRepository.kt
+@@ -426,6 +426,7 @@ class AppsRepository(application: Application) {
+                 try {
+                     when (shortcutId) {
+                         Constants.INKOS_SHORTCUT_APP_DRAWER -> {
++                            if (!com.github.gezimos.inkos.ui.AppDrawerToggle.isEnabled(context)) return true // inkOS-Patcher: app-drawer-toggle
+                             if (fragment.findNavController().currentDestination?.id == R.id.mainFragment) {
+                                 fragment.findNavController()
+                                     .navigate(R.id.action_mainFragment_to_appListFragment)
+diff --git a/app/src/main/java/com/github/gezimos/inkos/ui/AppDrawerToggle.kt b/app/src/main/java/com/github/gezimos/inkos/ui/AppDrawerToggle.kt
+new file mode 100644
+index 0000000..ef15481
+--- /dev/null
++++ b/app/src/main/java/com/github/gezimos/inkos/ui/AppDrawerToggle.kt
+@@ -0,0 +1,21 @@
++package com.github.gezimos.inkos.ui
++
++import android.content.Context
++import com.github.gezimos.inkos.data.Prefs
++
++/**
++ * inkOS-Patcher: master On/Off switch for the app drawer.
++ *
++ * Off: everything that opens the drawer to browse apps does nothing: the "App Drawer"
++ * gesture/shortcut action, the Menu key and Backspace on Home, the "App Drawer" home
++ * shortcut and the OPEN_APP_DRAWER intent. The Search action and typing on Home still
++ * open search. Settings and the home-app/favorites/hidden-app pickers are unaffected.
++ */
++object AppDrawerToggle {
++    const val PREF_KEY = "APP_DRAWER_ENABLED"
++    const val DEFAULT = true
++
++    /** True when the drawer may be opened. A failed prefs read keeps stock behavior. */
++    fun isEnabled(context: Context): Boolean =
++        try { Prefs(context).appDrawerEnabled } catch (_: Exception) { DEFAULT }
++}
+diff --git a/app/src/main/java/com/github/gezimos/inkos/ui/SettingsFragment.kt b/app/src/main/java/com/github/gezimos/inkos/ui/SettingsFragment.kt
+index 730e996..d0962f2 100644
+--- a/app/src/main/java/com/github/gezimos/inkos/ui/SettingsFragment.kt
++++ b/app/src/main/java/com/github/gezimos/inkos/ui/SettingsFragment.kt
+@@ -1327,6 +1327,12 @@ class SettingsFragment : Fragment() {
+         )
+ 
+         Column {
++            // inkOS-Patcher: app-drawer-toggle
++            var appDrawerEnabled by remember { mutableStateOf(prefs.appDrawerEnabled) }
++            SettingsSwitch(text = stringResource(R.string.app_drawer_toggle_title), fontSize = titleFontSize,
++                description = stringResource(R.string.desc_app_drawer_toggle),
++                defaultState = appDrawerEnabled,
++                onCheckedChange = { appDrawerEnabled = it; prefs.appDrawerEnabled = it })
+             SettingsSelect(
+                 title = stringResource(R.string.app_drawer),
+                 option = if (drawerState.appList.isEmpty()) "None" else "${drawerState.appList.size} apps",
+diff --git a/app/src/main/java/com/github/gezimos/inkos/ui/compose/GestureHelper.kt b/app/src/main/java/com/github/gezimos/inkos/ui/compose/GestureHelper.kt
+index e6aa3ef..6e3f17a 100644
+--- a/app/src/main/java/com/github/gezimos/inkos/ui/compose/GestureHelper.kt
++++ b/app/src/main/java/com/github/gezimos/inkos/ui/compose/GestureHelper.kt
+@@ -81,6 +81,7 @@ object GestureHelper {
+                 }
+             }
+             Action.OpenAppDrawer -> {
++                if (!com.github.gezimos.inkos.ui.AppDrawerToggle.isEnabled(context)) return // inkOS-Patcher: app-drawer-toggle
+                 fragment?.findNavController()?.navigate(R.id.appListFragment)
+             }
+             Action.OpenLettersScreen -> {
+diff --git a/app/src/main/res/values/strings_app_drawer_toggle.xml b/app/src/main/res/values/strings_app_drawer_toggle.xml
+new file mode 100644
+index 0000000..a1a636c
+--- /dev/null
++++ b/app/src/main/res/values/strings_app_drawer_toggle.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- inkOS-Patcher: app-drawer-toggle patch. Kept out of strings.xml so upstream edits never conflict. -->
++<resources>
++    <string name="app_drawer_toggle_title">Enable App Drawer</string>
++    <string name="desc_app_drawer_toggle">Off: gestures and keys that open the drawer do nothing. Search still works.</string>
++</resources>
+-- 
+2.43.0
+
