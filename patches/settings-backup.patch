@@ -1,0 +1,240 @@
+From 8e17d89aa714f8365b0b64fedb370a3dcb791732 Mon Sep 17 00:00:00 2001
+From: fab <faibiantorrestech@gmail.com>
+Date: Fri, 20 Nov 2026 20:44:34 +0000
+Subject: [PATCH] Backup: keep patcher settings in a vanilla-safe section
+ (inkOS-Patcher)
+
+Full backups and theme exports move every setting the patches add into
+one nested "inkos_patcher" section ({format, prefs, overrides}). Vanilla
+inkOS's importer skips nested values, so a patched backup restores
+cleanly on vanilla with stock behavior.
+
+Vanilla keys whose patched value would look wrong in vanilla get a
+vanilla-safe value at the top level and the real one under "overrides".
+Today that is HOME_PAGES_NUM: with a custom page layout (empty pages,
+uneven pages) vanilla gets the number of non-empty pages, so it shows
+the same apps in the same order, split evenly, with no empty pages.
+
+The patched importer runs vanilla's import, then restores the section
+(known keys only, with their types). Older patched backups, with
+patcher keys at the top level, still import as before. Logic lives in
+data/PatcherBackup.kt; Prefs.kt gets four one-line hooks.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AeXNKn1J4RMNctKNJG3DJC
+---
+ .../gezimos/inkos/data/PatcherBackup.kt       | 164 ++++++++++++++++++
+ .../com/github/gezimos/inkos/data/Prefs.kt    |   5 +-
+ 2 files changed, 168 insertions(+), 1 deletion(-)
+ create mode 100644 app/src/main/java/com/github/gezimos/inkos/data/PatcherBackup.kt
+
+diff --git a/app/src/main/java/com/github/gezimos/inkos/data/PatcherBackup.kt b/app/src/main/java/com/github/gezimos/inkos/data/PatcherBackup.kt
+new file mode 100644
+index 0000000..4723821
+--- /dev/null
++++ b/app/src/main/java/com/github/gezimos/inkos/data/PatcherBackup.kt
+@@ -0,0 +1,164 @@
++package com.github.gezimos.inkos.data
++
++import android.content.SharedPreferences
++import org.json.JSONObject
++
++/**
++ * inkOS-Patcher: backups that stay compatible with vanilla inkOS ("settings-backup" patch).
++ *
++ * Settings added by the patcher are moved out of the flat prefs map into one nested
++ * section, which vanilla's importer skips (it only stores strings, numbers, booleans and
++ * string sets):
++ *
++ *   "inkos_patcher": {
++ *     "format": 1,
++ *     "prefs":     { "APP_DRAWER_ENABLED": false, "HOME_PAGE_SIZES": "3,0,5", ... },
++ *     "overrides": { "HOME_PAGES_NUM": 3 }
++ *   }
++ *
++ * Vanilla keys whose patched value would look wrong in vanilla get a vanilla-safe value at
++ * the top level and the real value under "overrides". Today that is only HOME_PAGES_NUM:
++ * a custom page layout (page-layout patch) can have empty pages, so vanilla gets the number
++ * of non-empty pages instead and shows the same apps, in the same order, split evenly.
++ *
++ * The patched importer runs vanilla's import first, then restores this section. Older
++ * patched backups (patcher keys at the top level) still import as before.
++ */
++object PatcherBackup {
++    const val SECTION = "inkos_patcher"
++    private const val FORMAT = 1
++
++    private const val HOME_APPS_NUM = "HOME_APPS_NUM"
++    private const val HOME_PAGES_NUM = "HOME_PAGES_NUM"
++    private const val HOME_PAGE_SIZES = "HOME_PAGE_SIZES"
++
++    private enum class Type { BOOLEAN, INT, STRING }
++
++    /** Every setting the patches add. Keep in sync when a patch adds a setting. */
++    private val PATCHER_KEYS: Map<String, Type> = mapOf(
++        "APP_DRAWER_ENABLED" to Type.BOOLEAN,            // app-drawer-toggle
++        "APP_DRAWER_REVEAL_MODE" to Type.INT,            // hide-until-search
++        "PAGE_INDICATOR_SIDE" to Type.INT,               // page-indicator-options
++        "PAGE_INDICATOR_AUTO_HIDE" to Type.INT,
++        "PAGE_INDICATOR_OPACITY" to Type.INT,
++        "PAGE_INDICATOR_STYLE" to Type.INT,
++        "PAGE_INDICATOR_FADED_OPACITY" to Type.INT,
++        HOME_PAGE_SIZES to Type.STRING                   // page-layout
++    )
++
++    /** The patcher settings that belong in a theme export (look and layout, like vanilla's theme keys). */
++    private val THEME_KEYS: Set<String> = setOf(
++        "APP_DRAWER_REVEAL_MODE",
++        "PAGE_INDICATOR_SIDE", "PAGE_INDICATOR_AUTO_HIDE", "PAGE_INDICATOR_OPACITY",
++        "PAGE_INDICATOR_STYLE", "PAGE_INDICATOR_FADED_OPACITY",
++        HOME_PAGE_SIZES
++    )
++
++    /** Vanilla keys that may carry a patched-only value in "overrides", with their type. */
++    private val OVERRIDE_KEYS: Map<String, Type> = mapOf(HOME_PAGES_NUM to Type.INT)
++
++    // ---------------------------------------------------------------- export
++
++    /** Full backup: moves patcher keys from [all] into the section and adds vanilla fallbacks. */
++    fun wrapBackup(all: MutableMap<String, Any?>) {
++        try {
++            val section = buildSection(source = all, keys = PATCHER_KEYS.keys, target = all)
++            PATCHER_KEYS.keys.forEach { all.remove(it) }
++            if (section != null) all[SECTION] = section
++        } catch (_: Exception) {}
++    }
++
++    /** Theme export: [root] is {type, version, prefs}; [all] is every current pref. */
++    fun wrapTheme(root: Map<String, Any?>, all: Map<String, *>): Map<String, Any?> {
++        return try {
++            @Suppress("UNCHECKED_CAST")
++            val themePrefs = ((root["prefs"] as? Map<String, Any?>) ?: emptyMap()).toMutableMap()
++            val section = buildSection(source = all, keys = THEME_KEYS, target = themePrefs)
++            val out = root.toMutableMap()
++            out["prefs"] = themePrefs
++            if (section != null) out[SECTION] = section
++            out
++        } catch (_: Exception) { root }
++    }
++
++    /**
++     * Collects [keys] from [source] and, when [target] holds HOME_PAGES_NUM, swaps in the
++     * vanilla-safe page count (keeping the real one under "overrides"). Null when empty.
++     */
++    private fun buildSection(source: Map<String, *>, keys: Set<String>, target: MutableMap<String, Any?>): Map<String, Any?>? {
++        val prefs = LinkedHashMap<String, Any?>()
++        for (key in keys) {
++            val value = source[key] ?: continue
++            prefs[key] = value
++        }
++        val overrides = LinkedHashMap<String, Any?>()
++        val pages = (target[HOME_PAGES_NUM] as? Number)?.toInt()
++        val slots = (source[HOME_APPS_NUM] as? Number)?.toInt()
++        val sizes = parseSizes(source[HOME_PAGE_SIZES] as? String)
++        if (pages != null && slots != null && sizes != null && sizes.size == pages && sizes.sum() == slots) {
++            val vanillaPages = vanillaPageCount(sizes, slots)
++            if (vanillaPages != pages) {
++                overrides[HOME_PAGES_NUM] = pages
++                target[HOME_PAGES_NUM] = vanillaPages
++            }
++        }
++        if (prefs.isEmpty() && overrides.isEmpty()) return null
++        return linkedMapOf("format" to FORMAT, "prefs" to prefs, "overrides" to overrides)
++    }
++
++    /**
++     * Pages vanilla should use for a custom layout: one per non-empty page, fewer if
++     * vanilla's even split (ceil(slots / pages) each) would still leave a page empty.
++     */
++    fun vanillaPageCount(sizes: List<Int>, slots: Int): Int {
++        var pages = sizes.count { it > 0 }.coerceAtLeast(1)
++        while (pages > 1 && slots > 0) {
++            val per = (slots + pages - 1) / pages
++            if (per * (pages - 1) < slots) break // last page still gets at least one slot
++            pages--
++        }
++        return pages
++    }
++
++    private fun parseSizes(raw: String?): List<Int>? {
++        if (raw.isNullOrBlank()) return null
++        return raw.split(',').map { it.trim().toIntOrNull() ?: return null }
++    }
++
++    // ---------------------------------------------------------------- import
++
++    /** Full restore: call after vanilla's import of [json]. */
++    fun restoreBackup(prefs: SharedPreferences, json: String) =
++        restore(prefs, json, allowed = PATCHER_KEYS.keys)
++
++    /** Theme import: call after vanilla's theme import of [json]. */
++    fun restoreTheme(prefs: SharedPreferences, json: String) =
++        restore(prefs, json, allowed = THEME_KEYS)
++
++    private fun restore(prefs: SharedPreferences, json: String, allowed: Set<String>) {
++        try {
++            val section = JSONObject(json).optJSONObject(SECTION) ?: return
++            val editor = prefs.edit()
++            section.optJSONObject("prefs")?.let { values ->
++                for (key in values.keys()) {
++                    if (key !in allowed) continue
++                    put(editor, key, PATCHER_KEYS[key] ?: continue, values.get(key))
++                }
++            }
++            section.optJSONObject("overrides")?.let { values ->
++                for (key in values.keys()) {
++                    put(editor, key, OVERRIDE_KEYS[key] ?: continue, values.get(key))
++                }
++            }
++            editor.commit()
++        } catch (_: Exception) {}
++    }
++
++    private fun put(editor: SharedPreferences.Editor, key: String, type: Type, value: Any?) {
++        when (type) {
++            Type.BOOLEAN -> (value as? Boolean)?.let { editor.putBoolean(key, it) }
++            Type.INT -> (value as? Number)?.let { editor.putInt(key, it.toInt()) }
++            Type.STRING -> (value as? String)?.let { editor.putString(key, it) }
++        }
++    }
++}
+diff --git a/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt b/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt
+index 8a46eb3..a1f33d6 100644
+--- a/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt
++++ b/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt
+@@ -354,7 +354,7 @@ class Prefs(val context: Context) {
+             "version" to 1,
+             "prefs" to saveThemeToMap()
+         )
+-        return com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(root)
++        return com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(PatcherBackup.wrapTheme(root, prefs.all)) // inkOS-Patcher: settings-backup
+     }
+ 
+     /** Import theme settings from a JSON string. Only applies visual/layout prefs, nothing private. */
+@@ -366,6 +366,7 @@ class Prefs(val context: Context) {
+         val filtered = prefsMap.filterKeys { it in themeExportKeys }
+         loadThemeFromMap(filtered, useCommit = true)
+         loadCustomThemeFromMap(filtered)
++        PatcherBackup.restoreTheme(prefs, json) // inkOS-Patcher: settings-backup
+         appTheme = appTheme
+         val resId = inkosWallpaperResourceId
+         if (resId != 0) {
+@@ -700,6 +701,7 @@ class Prefs(val context: Context) {
+         val all: HashMap<String, Any?> = HashMap(prefs.all)
+         all.remove(Constants.PrefKeys.EVENTS_CALENDAR_ID)
+         all.remove(Constants.PrefKeys.EVENTS_CALENDAR_NAME)
++        PatcherBackup.wrapBackup(all) // inkOS-Patcher: settings-backup
+         return Gson().toJson(all)
+     }
+ 
+@@ -769,6 +771,7 @@ class Prefs(val context: Context) {
+                 }
+             }
+         }
++        PatcherBackup.restoreBackup(prefs, json) // inkOS-Patcher: settings-backup
+     }
+ 
+     fun getAppAlias(key: String): String {
+-- 
+2.43.0
+
