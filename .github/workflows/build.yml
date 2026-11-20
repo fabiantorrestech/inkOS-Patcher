@@ -11,6 +11,10 @@ on:
         description: Rebuild even if this release was already built
         type: boolean
         default: false
+      test:
+        description: 'Test build: a name like "test1" publishes pre-release <version>-patched-<name> (release + debug APK) and skips the app hub. Leave empty for a normal build.'
+        required: false
+        default: ''
   schedule:
     # Daily check for a new upstream release (09:00 UTC). Builds only when there is one.
     - cron: '0 9 * * *'
@@ -42,6 +46,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           INPUT_RELEASE: ${{ github.event.inputs.release || 'latest' }}
           INPUT_FORCE: ${{ github.event.inputs.force || 'false' }}
+          INPUT_TEST: ${{ github.event.inputs.test || '' }}
         run: |
           set -euo pipefail
           LATEST="$(gh release view -R "$UPSTREAM" --json tagName -q .tagName)"
@@ -66,10 +71,19 @@ jobs:
           fi
 
           OUT="${TAG}-patched"
+          if [ -n "$INPUT_TEST" ]; then
+            if ! [[ "$INPUT_TEST" =~ ^[A-Za-z0-9._-]+$ ]]; then
+              echo "::error::'$INPUT_TEST' is not a valid test build name."
+              exit 1
+            fi
+            OUT="${OUT}-${INPUT_TEST}"
+          fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "out=$OUT" >> "$GITHUB_OUTPUT"
+          # Test builds are pre-releases: never "latest" here, never sent to the app hub.
+          if [ -n "$INPUT_TEST" ]; then echo "test=true" >> "$GITHUB_OUTPUT"; else echo "test=false" >> "$GITHUB_OUTPUT"; fi
           # Only the newest upstream release becomes "latest" here, so update apps never downgrade.
-          if [ "$TAG" = "$LATEST" ]; then echo "latest=true" >> "$GITHUB_OUTPUT"; else echo "latest=false" >> "$GITHUB_OUTPUT"; fi
+          if [ "$TAG" = "$LATEST" ] && [ -z "$INPUT_TEST" ]; then echo "latest=true" >> "$GITHUB_OUTPUT"; else echo "latest=false" >> "$GITHUB_OUTPUT"; fi
 
           if gh release view "$OUT" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1 && [ "$INPUT_FORCE" != "true" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -181,15 +195,29 @@ jobs:
           cp "$debug" inkOS-debug.apk
           echo "path=$DEST" >> "$GITHUB_OUTPUT"
           echo "debug=inkOS-debug.apk" >> "$GITHUB_OUTPUT"
+          # Test pre-releases also carry the debug APK, which installs next to the real launcher.
+          if [ "${{ steps.rel.outputs.test }}" = "true" ]; then
+            cp "$debug" "inkOS-debug-${OUT}.apk"
+            printf 'files<<EOF\n%s\n%s\nEOF\n' "$DEST" "inkOS-debug-${OUT}.apk" >> "$GITHUB_OUTPUT"
+          else
+            printf 'files<<EOF\n%s\nEOF\n' "$DEST" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Prepare release notes
         if: steps.rel.outputs.skip == 'false'
         env:
           TAG: ${{ steps.rel.outputs.tag }}
+          IS_TEST: ${{ steps.rel.outputs.test }}
         run: |
           {
-            echo "inkOS $TAG with two patches:"
+            if [ "$IS_TEST" = "true" ]; then
+              echo "**Test build** from branch \`$GITHUB_REF_NAME\` ($GITHUB_SHA). Not sent to the app hub."
+              echo ""
+            fi
+            echo "inkOS $TAG with three patches:"
             echo ""
+            echo "- App drawer toggle: Settings > App Drawer > **Enable App Drawer** (default On). Off makes"
+            echo "  every gesture, key and shortcut that opens the drawer do nothing. Search still works."
             echo "- Hide until search: Settings > App Drawer > Search > **Show Apps** chooses when the app"
             echo "  drawer lists apps: Always (stock inkOS), While typing, or After Search key (default)."
             echo "  In After Search key mode the drawer stays empty until you type and press Search."
@@ -207,8 +235,10 @@ jobs:
           tag_name: ${{ steps.rel.outputs.out }}
           name: inkOS ${{ steps.rel.outputs.out }}
           body_path: release-notes.md
-          files: ${{ steps.apk.outputs.path }}
+          files: ${{ steps.apk.outputs.files }}
           make_latest: ${{ steps.rel.outputs.latest }}
+          prerelease: ${{ steps.rel.outputs.test == 'true' }}
+          target_commitish: ${{ github.sha }}
 
       # Same rolling-release step as the other apps' workflows (android-apps ADR 4 and 8).
       # Only the newest upstream release goes to the hub, so its download never goes backwards.
@@ -228,7 +258,7 @@ jobs:
           fi
           cp "$SRC" inkOS.apk
           title="$NAME $OUT"
-          notes="Built by CI from ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}: inkOS ${OUT%-patched} with the hide-until-search and page-indicator-options patches, on $(date -u '+%Y-%m-%d %H:%M') UTC."
+          notes="Built by CI from ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}: inkOS ${OUT%-patched} with the app-drawer-toggle, hide-until-search and page-indicator-options patches, on $(date -u '+%Y-%m-%d %H:%M') UTC."
           if gh release view "$TAG" --repo "$HUB" > /dev/null 2>&1; then
             gh release upload "$TAG" inkOS.apk "$DEBUG" --repo "$HUB" --clobber
             gh release edit "$TAG" --repo "$HUB" --title "$title" --notes "$notes"

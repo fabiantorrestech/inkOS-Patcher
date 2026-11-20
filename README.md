@@ -1,6 +1,8 @@
 # inkOS-Patcher
 
-Builds [inkOS](https://github.com/gezimos/inkOS) releases with two extra patches:
+Builds [inkOS](https://github.com/gezimos/inkOS) releases with three extra patches:
+
+- **App drawer toggle: turn the app drawer off.** A new switch, Settings → App Drawer → **Enable App Drawer** (default On). When Off, everything that opens the drawer to browse apps does nothing: the "App Drawer" action on any gesture or shortcut, the Menu key and Backspace on Home, the "App Drawer" home shortcut, and the open-drawer intent. The **Search** action and typing on Home still open search (what it lists follows Show Apps below). Settings and the home-app, favorites and hidden-app pickers still work.
 
 - **Hide until search: the app drawer stays empty until you search.** A new setting, Settings → App Drawer → Search → **Show Apps**, picks when the drawer lists apps:
 
@@ -50,6 +52,13 @@ Daily at 09:00 UTC, or when you press "Run workflow"
 ```
 
 A patch is a list of edits, like "in this file, replace this line with that one." Each new inkOS release gets a fresh copy of the official code, and the edits are applied on top. Applying only fails when inkOS itself changed the same lines the patch edits.
+
+### What the app-drawer-toggle patch changes
+
+- **New file `ui/AppDrawerToggle.kt`.** The setting key, its default (On) and the one `isEnabled` check.
+- **New file `res/values/strings_app_drawer_toggle.xml`.** The switch's 2 strings.
+- **`GestureHelper.kt`, `MainActivity.kt`, `AppsRepository.kt`.** One-line guards on each path that opens the drawer.
+- **`Prefs.kt` and `SettingsFragment.kt`.** One stored setting (`APP_DRAWER_ENABLED`) and one switch at the top of Settings → App Drawer.
 
 ### What the hide-until-search patch changes
 
