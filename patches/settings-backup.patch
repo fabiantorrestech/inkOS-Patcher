@@ -1,4 +1,4 @@
-From 8e17d89aa714f8365b0b64fedb370a3dcb791732 Mon Sep 17 00:00:00 2001
+From 88f22d23a9db87e03b220aec2eb2af0e9333f5d3 Mon Sep 17 00:00:00 2001
 From: fab <faibiantorrestech@gmail.com>
 Date: Fri, 20 Nov 2026 20:44:34 +0000
 Subject: [PATCH] Backup: keep patcher settings in a vanilla-safe section
@@ -23,17 +23,17 @@ data/PatcherBackup.kt; Prefs.kt gets four one-line hooks.
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01AeXNKn1J4RMNctKNJG3DJC
 ---
- .../gezimos/inkos/data/PatcherBackup.kt       | 164 ++++++++++++++++++
+ .../gezimos/inkos/data/PatcherBackup.kt       | 165 ++++++++++++++++++
  .../com/github/gezimos/inkos/data/Prefs.kt    |   5 +-
- 2 files changed, 168 insertions(+), 1 deletion(-)
+ 2 files changed, 169 insertions(+), 1 deletion(-)
  create mode 100644 app/src/main/java/com/github/gezimos/inkos/data/PatcherBackup.kt
 
 diff --git a/app/src/main/java/com/github/gezimos/inkos/data/PatcherBackup.kt b/app/src/main/java/com/github/gezimos/inkos/data/PatcherBackup.kt
 new file mode 100644
-index 0000000..4723821
+index 0000000..4271988
 --- /dev/null
 +++ b/app/src/main/java/com/github/gezimos/inkos/data/PatcherBackup.kt
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,165 @@
 +package com.github.gezimos.inkos.data
 +
 +import android.content.SharedPreferences
@@ -79,6 +79,7 @@ index 0000000..4723821
 +        "PAGE_INDICATOR_OPACITY" to Type.INT,
 +        "PAGE_INDICATOR_STYLE" to Type.INT,
 +        "PAGE_INDICATOR_FADED_OPACITY" to Type.INT,
++        "PAGE_INDICATOR_FADE_STYLE" to Type.INT,
 +        HOME_PAGE_SIZES to Type.STRING                   // page-layout
 +    )
 +
@@ -86,7 +87,7 @@ index 0000000..4723821
 +    private val THEME_KEYS: Set<String> = setOf(
 +        "APP_DRAWER_REVEAL_MODE",
 +        "PAGE_INDICATOR_SIDE", "PAGE_INDICATOR_AUTO_HIDE", "PAGE_INDICATOR_OPACITY",
-+        "PAGE_INDICATOR_STYLE", "PAGE_INDICATOR_FADED_OPACITY",
++        "PAGE_INDICATOR_STYLE", "PAGE_INDICATOR_FADED_OPACITY", "PAGE_INDICATOR_FADE_STYLE",
 +        HOME_PAGE_SIZES
 +    )
 +
@@ -236,5 +237,5 @@ index 8a46eb3..a1f33d6 100644
  
      fun getAppAlias(key: String): String {
 -- 
-2.43.0
+2.54.0.windows.1
 
