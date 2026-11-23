@@ -1,6 +1,6 @@
 # inkOS-Patcher
 
-Builds [inkOS](https://github.com/gezimos/inkOS) releases with five extra patches:
+Builds [inkOS](https://github.com/gezimos/inkOS) releases with five extra patches. Settings they add end with **✦** and sit indented under the stock setting they belong to:
 
 - **Settings backup: backups that work in both apps.** Settings → Backup & Restore files from the patched app also restore cleanly in stock inkOS:
 
@@ -26,7 +26,7 @@ Builds [inkOS](https://github.com/gezimos/inkOS) releases with five extra patche
 
 - **App drawer toggle: turn the app drawer off.** A new switch, Settings → App Drawer → **Enable App Drawer** (default On). When Off, everything that opens the drawer to browse apps does nothing: the "App Drawer" action on any gesture or shortcut, the Menu key and Backspace on Home, the "App Drawer" home shortcut, and the open-drawer intent. The **Search** action and typing on Home still open search (what it lists follows Show Apps below). Settings and the home-app, favorites and hidden-app pickers still work.
 
-- **Hide until search: the app drawer stays empty until you search.** A new setting, Settings → App Drawer → Search → **Show Apps**, picks when the drawer lists apps:
+- **Hide until search: the app drawer stays empty until you search.** A new setting, Settings → App Drawer → Search → **Show Apps ✦** (under Show Search Bar), picks when the drawer lists apps:
 
   | Mode | The drawer shows apps… |
   | --- | --- |
@@ -34,17 +34,18 @@ Builds [inkOS](https://github.com/gezimos/inkOS) releases with five extra patche
   | While typing | once the search box has text, filtering as you type |
   | **After Search key** (default) | only after you type and press Search on the keyboard |
 
-- **Page indicator options: more control over the home page dots.** Five new rows in Settings → Home, under **Enable Page Indicator**:
+- **Page indicator options: more control over the home page dots.** Six new rows in Settings → Home, indented under **Enable Page Indicator**:
 
   | Setting | Choices |
   | --- | --- |
-  | Page Indicator Side | **Auto** (stock: opposite the apps), Left, Right. Left and Right sit in the side margin, so they never cover an app name. |
-  | Page Indicator Auto-hide | **Off**, 1s, 2s, 5s, 10s. That long after the page changes, the dots fade out; they fade back in on the next swipe or when you return Home. Fades follow Android's animation speed, so with animations off (e-ink) they're instant. |
-  | Page Indicator Fades To | **Nothing** (0%) or 10–90%: how visible the dots stay after auto-hide |
-  | Page Indicator Opacity | 10–**100%** for the whole indicator |
-  | Page Indicator Style | **Classic** (stock), Pill (small dimmed dots, the current page as a long pill, on a light backing) |
+  | Side ✦ | **Auto** (stock: opposite the apps), Left, Right. Left and Right sit in the side margin, so they never cover an app name. |
+  | Auto-hide ✦ | **Off**, 1s, 2s, 5s, 10s. That long after the page changes, the dots fade out; they fade back in on the next swipe or when you return Home. |
+  | &nbsp;&nbsp;Fades To ✦ | **Nothing** (0%) or 10–90%: how visible the dots stay after auto-hide |
+  | &nbsp;&nbsp;Fade ✦ | **Smooth** (fades) or Instant (switches on/off at once) |
+  | Opacity ✦ | 10–**100%** for the whole indicator |
+  | Style ✦ | **Classic** (stock), Pill (small dimmed dots, the current page as a long pill, on a light backing) |
 
-  Bold = default, which looks exactly like stock inkOS.
+  Bold = default, which looks exactly like stock inkOS. **On e-ink:** set Fades To = Nothing and Fade = Instant, so the dots switch on and off in one screen refresh instead of flickering through greys.
 
 Unofficial build, not made by the inkOS developer. Supports inkOS **v0.6 and later**.
 
@@ -123,10 +124,10 @@ Behavior details:
 
 ### What the page-indicator-options patch changes
 
-- **New file `ui/PageIndicatorOptions.kt`.** The five settings, the placement and auto-hide fade logic, and the Pill dots.
+- **New file `ui/PageIndicatorOptions.kt`.** The six settings, the placement and auto-hide fade logic, the settings-row indent helper, and the Pill dots.
 - **New file `res/values/strings_page_indicator.xml`.** The settings' strings.
 - **`HomeUI.kt`.** The page indicator call now goes through `PatchedPageIndicator` (one import, one call).
-- **`Prefs.kt` and `SettingsFragment.kt`.** Five stored settings (`PAGE_INDICATOR_SIDE`, `_AUTO_HIDE`, `_FADED_OPACITY`, `_OPACITY`, `_STYLE`) and five rows under Enable Page Indicator, greyed out while it's off.
+- **`Prefs.kt` and `SettingsFragment.kt`.** Six stored settings (`PAGE_INDICATOR_SIDE`, `_AUTO_HIDE`, `_FADED_OPACITY`, `_FADE_STYLE`, `_OPACITY`, `_STYLE`) and five rows under Enable Page Indicator, greyed out while it's off.
 
 Only the page indicator beside the home apps changes. The bottom "Page Dots" widget keeps the stock look.
 

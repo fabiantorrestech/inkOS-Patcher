@@ -1,17 +1,22 @@
-From a1247c1efddeda9a0d1a53761841d71331171fc5 Mon Sep 17 00:00:00 2001
+From 0d69d1572d6aa45f0504717866df0410e53bd407 Mon Sep 17 00:00:00 2001
 From: fab <faibiantorrestech@gmail.com>
 Date: Mon, 16 Nov 2026 17:55:45 -0600
 Subject: [PATCH] Home: page indicator side, auto-hide fade, opacity, pill dots
  (inkOS-Patcher)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
 
-Adds five rows to Settings > Home under "Enable Page Indicator":
+Adds six rows to Settings > Home, indented under "Enable Page Indicator"
+and marked ✦ (patcher setting):
 - Side: Auto (vanilla, opposite the apps), Left, Right. Left/Right draw
   the indicator in the side margin outside the apps, so it never covers
   an app label.
 - Auto-hide: Off, 1s, 2s, 5s, 10s after the page last changed, the indicator
   fades out (600 ms). It fades back in (250 ms) on the next page change
-  or when Home regains focus. Fades follow the system animation scale.
+  or when Home regains focus.
 - Fades To: what auto-hide fades to: Nothing (0%) or 10-90%.
+- Fade: Smooth or Instant (pops on/off in one frame, for e-ink).
 - Opacity: 10-100% for the whole indicator while shown.
 - Style: Classic (vanilla) or Pill (android_shortcut_hub's page dots,
   vertical: dimmed dots, current page as a long pill, light backing).
@@ -22,20 +27,20 @@ ui/PageIndicatorOptions.kt; upstream files get small hooks only.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- .../com/github/gezimos/inkos/data/Prefs.kt    |  19 ++
- .../gezimos/inkos/ui/PageIndicatorOptions.kt  | 250 ++++++++++++++++++
- .../gezimos/inkos/ui/SettingsFragment.kt      |  53 ++++
+ .../com/github/gezimos/inkos/data/Prefs.kt    |  22 ++
+ .../gezimos/inkos/ui/PageIndicatorOptions.kt  | 277 ++++++++++++++++++
+ .../gezimos/inkos/ui/SettingsFragment.kt      |  76 +++++
  .../github/gezimos/inkos/ui/compose/HomeUI.kt |  12 +-
- .../res/values/strings_page_indicator.xml     |  26 ++
- 5 files changed, 356 insertions(+), 4 deletions(-)
+ .../res/values/strings_page_indicator.xml     |  35 +++
+ 5 files changed, 418 insertions(+), 4 deletions(-)
  create mode 100644 app/src/main/java/com/github/gezimos/inkos/ui/PageIndicatorOptions.kt
  create mode 100644 app/src/main/res/values/strings_page_indicator.xml
 
 diff --git a/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt b/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt
-index 8a46eb3..7ebf59c 100644
+index 8a46eb3..acd5677 100644
 --- a/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt
 +++ b/app/src/main/java/com/github/gezimos/inkos/data/Prefs.kt
-@@ -847,6 +847,25 @@ class Prefs(val context: Context) {
+@@ -847,6 +847,28 @@ class Prefs(val context: Context) {
          get() = prefs.getBoolean(HOME_PAGES_PAGER, true)
          set(value) = prefs.edit { putBoolean(HOME_PAGES_PAGER, value) }
  
@@ -57,16 +62,19 @@ index 8a46eb3..7ebf59c 100644
 +        get() = prefs.getInt(com.github.gezimos.inkos.ui.PageIndicatorOptions.KEY_FADED_OPACITY, com.github.gezimos.inkos.ui.PageIndicatorOptions.FADED_OPACITY_MIN)
 +            .coerceIn(com.github.gezimos.inkos.ui.PageIndicatorOptions.FADED_OPACITY_MIN, com.github.gezimos.inkos.ui.PageIndicatorOptions.FADED_OPACITY_MAX)
 +        set(value) = prefs.edit { putInt(com.github.gezimos.inkos.ui.PageIndicatorOptions.KEY_FADED_OPACITY, value.coerceIn(com.github.gezimos.inkos.ui.PageIndicatorOptions.FADED_OPACITY_MIN, com.github.gezimos.inkos.ui.PageIndicatorOptions.FADED_OPACITY_MAX)) }
++    var pageIndicatorFadeStyle: Int
++        get() = prefs.getInt(com.github.gezimos.inkos.ui.PageIndicatorOptions.KEY_FADE_STYLE, com.github.gezimos.inkos.ui.PageIndicatorOptions.FADE_SMOOTH)
++        set(value) = prefs.edit { putInt(com.github.gezimos.inkos.ui.PageIndicatorOptions.KEY_FADE_STYLE, value.coerceIn(0, com.github.gezimos.inkos.ui.PageIndicatorOptions.FADE_STYLE_COUNT - 1)) }
 +
  
      var homeReset: Boolean
          get() = prefs.getBoolean(HOME_PAGE_RESET, true)
 diff --git a/app/src/main/java/com/github/gezimos/inkos/ui/PageIndicatorOptions.kt b/app/src/main/java/com/github/gezimos/inkos/ui/PageIndicatorOptions.kt
 new file mode 100644
-index 0000000..bf4392d
+index 0000000..b9bd814
 --- /dev/null
 +++ b/app/src/main/java/com/github/gezimos/inkos/ui/PageIndicatorOptions.kt
-@@ -0,0 +1,250 @@
+@@ -0,0 +1,277 @@
 +package com.github.gezimos.inkos.ui
 +
 +// inkOS-Patcher: page-indicator-options patch.
@@ -74,13 +82,15 @@ index 0000000..bf4392d
 +//   - Side: Auto (vanilla: opposite the apps), Left or Right. Left/Right draw it in the empty
 +//     side margin outside the apps, so it never covers an app label.
 +//   - Auto-hide: N seconds after the page last changed, the counter fades out. It fades back in
-+//     on the next page change and whenever Home regains window focus. Fades follow the system
-+//     animation scale, so with animations off (common on e-ink) they are instant.
++//     on the next page change and whenever Home regains window focus.
 +//   - Fades To: how far auto-hide fades it: 0% = gone, or a faint 10-90%.
++//   - Fade: Smooth (animated; also follows the system animation scale) or Instant (pops on and
++//     off in one frame, so e-ink screens don't flicker through grey in-between frames).
 +//   - Opacity: how visible the whole counter is while shown.
 +//   - Dot style: Classic (vanilla) or Pill (small dimmed dots, the current page drawn as a
 +//     long pill, on a translucent backing).
-+// Upstream files only get small hooks: Prefs (5 values), HomeUI (one call), SettingsFragment (5 rows).
++// Settings rows are marked ✦ and indented under "Enable Page Indicator" ([PatcherSubSetting]).
++// Upstream files only get small hooks: Prefs (6 values), HomeUI (one call), SettingsFragment (6 rows).
 +
 +import android.content.SharedPreferences
 +import android.view.ViewTreeObserver
@@ -111,7 +121,10 @@ index 0000000..bf4392d
 +import androidx.compose.ui.graphics.graphicsLayer
 +import androidx.compose.ui.platform.LocalView
 +import androidx.compose.ui.unit.Dp
++import androidx.compose.ui.unit.dp
 +import com.github.gezimos.inkos.data.Prefs
++import com.github.gezimos.inkos.style.rememberScreenScale
++import com.github.gezimos.inkos.style.scaled
 +import com.github.gezimos.inkos.ui.compose.PageIndicator
 +import kotlinx.coroutines.delay
 +
@@ -121,7 +134,8 @@ index 0000000..bf4392d
 +    const val KEY_OPACITY = "PAGE_INDICATOR_OPACITY"
 +    const val KEY_STYLE = "PAGE_INDICATOR_STYLE"
 +    const val KEY_FADED_OPACITY = "PAGE_INDICATOR_FADED_OPACITY"
-+    private val KEYS = setOf(KEY_SIDE, KEY_AUTO_HIDE, KEY_OPACITY, KEY_STYLE, KEY_FADED_OPACITY)
++    const val KEY_FADE_STYLE = "PAGE_INDICATOR_FADE_STYLE"
++    private val KEYS = setOf(KEY_SIDE, KEY_AUTO_HIDE, KEY_OPACITY, KEY_STYLE, KEY_FADED_OPACITY, KEY_FADE_STYLE)
 +
 +    const val SIDE_AUTO = 0
 +    const val SIDE_LEFT = 1
@@ -142,6 +156,10 @@ index 0000000..bf4392d
 +    const val FADED_OPACITY_MIN = 0
 +    const val FADED_OPACITY_MAX = 90
 +
++    const val FADE_SMOOTH = 0
++    const val FADE_INSTANT = 1
++    const val FADE_STYLE_COUNT = 2
++
 +    const val FADE_IN_MS = 250
 +    const val FADE_OUT_MS = 600
 +
@@ -159,7 +177,8 @@ index 0000000..bf4392d
 +    val autoHideSeconds: Int,
 +    val opacity: Int,
 +    val style: Int,
-+    val fadedOpacity: Int
++    val fadedOpacity: Int,
++    val fadeStyle: Int
 +) {
 +    companion object {
 +        fun read(prefs: Prefs) = PageIndicatorSettings(
@@ -167,12 +186,13 @@ index 0000000..bf4392d
 +            autoHideSeconds = prefs.pageIndicatorAutoHide,
 +            opacity = prefs.pageIndicatorOpacity,
 +            style = prefs.pageIndicatorStyle,
-+            fadedOpacity = prefs.pageIndicatorFadedOpacity
++            fadedOpacity = prefs.pageIndicatorFadedOpacity,
++            fadeStyle = prefs.pageIndicatorFadeStyle
 +        )
 +    }
 +}
 +
-+/** The four settings as Compose state, updated as soon as Settings writes them. */
++/** The settings as Compose state, updated as soon as Settings writes them. */
 +@Composable
 +fun rememberPageIndicatorSettings(prefs: Prefs): State<PageIndicatorSettings> {
 +    val settings = remember(prefs) { mutableStateOf(PageIndicatorSettings.read(prefs)) }
@@ -219,11 +239,14 @@ index 0000000..bf4392d
 +
 +    // With auto-hide on, the counter starts faded and fades in, like after a page change.
 +    val alpha = remember { Animatable(if (autoHides) fadedAlpha else shownAlpha) }
++    val instant = settings.fadeStyle == PageIndicatorOptions.FADE_INSTANT
 +    LaunchedEffect(currentPage, settings, showEditMode, shownAgainCount) {
-+        alpha.animateTo(shownAlpha, tween(PageIndicatorOptions.FADE_IN_MS))
++        if (instant) alpha.snapTo(shownAlpha)
++        else alpha.animateTo(shownAlpha, tween(PageIndicatorOptions.FADE_IN_MS))
 +        if (autoHides) {
 +            delay(settings.autoHideSeconds * 1000L)
-+            alpha.animateTo(fadedAlpha, tween(PageIndicatorOptions.FADE_OUT_MS))
++            if (instant) alpha.snapTo(fadedAlpha)
++            else alpha.animateTo(fadedAlpha, tween(PageIndicatorOptions.FADE_OUT_MS))
 +        }
 +    }
 +
@@ -317,67 +340,102 @@ index 0000000..bf4392d
 +    }
 +    return count
 +}
++
++/**
++ * Indents a patcher-only settings row under its master setting, [level] steps of 16dp. Start
++ * side only: SettingsSelect's own horizontalPadding pads both sides, which would also shift the
++ * value column away from the stock rows.
++ */
++@Composable
++fun PatcherSubSetting(level: Int = 1, content: @Composable () -> Unit) {
++    Box(modifier = Modifier.padding(start = 16.dp.scaled(rememberScreenScale()) * level)) {
++        content()
++    }
++}
 diff --git a/app/src/main/java/com/github/gezimos/inkos/ui/SettingsFragment.kt b/app/src/main/java/com/github/gezimos/inkos/ui/SettingsFragment.kt
-index 730e996..111cf84 100644
+index 730e996..09b3d16 100644
 --- a/app/src/main/java/com/github/gezimos/inkos/ui/SettingsFragment.kt
 +++ b/app/src/main/java/com/github/gezimos/inkos/ui/SettingsFragment.kt
-@@ -963,6 +963,59 @@ class SettingsFragment : Fragment() {
+@@ -963,6 +963,82 @@ class SettingsFragment : Fragment() {
              SettingsSwitch(text = stringResource(R.string.enable_home_pager), fontSize = titleFontSize,
                  description = stringResource(R.string.desc_page_indicator),
                  defaultState = homeUiState.pageIndicatorVisible, onCheckedChange = { viewModel.setPageIndicatorVisible(it) })
-+            // inkOS-Patcher: page-indicator-options
++            // inkOS-Patcher: page-indicator-options. Rows sit indented under "Enable Page Indicator"
++            // (Fades To and Fade one level deeper, under Auto-hide) and end with ✦.
 +            var pageIndicatorSide by remember { mutableStateOf(prefs.pageIndicatorSide) }
 +            val pageIndicatorSideLabels = listOf(stringResource(R.string.page_indicator_side_auto), stringResource(R.string.page_indicator_side_left), stringResource(R.string.page_indicator_side_right))
-+            SettingsSelect(title = stringResource(R.string.page_indicator_side_title),
-+                option = pageIndicatorSideLabels.getOrElse(pageIndicatorSide) { pageIndicatorSideLabels[0] },
-+                description = stringResource(R.string.desc_page_indicator_side),
-+                enabled = homeUiState.pageIndicatorVisible, fontSize = titleFontSize, onClick = {
-+                    pageIndicatorSide = (pageIndicatorSide + 1) % PageIndicatorOptions.SIDE_COUNT
-+                    prefs.pageIndicatorSide = pageIndicatorSide
-+                })
++            PatcherSubSetting(1) {
++                SettingsSelect(title = stringResource(R.string.page_indicator_side_title),
++                    option = pageIndicatorSideLabels.getOrElse(pageIndicatorSide) { pageIndicatorSideLabels[0] },
++                    description = stringResource(R.string.desc_page_indicator_side),
++                    enabled = homeUiState.pageIndicatorVisible, fontSize = titleFontSize, onClick = {
++                        pageIndicatorSide = (pageIndicatorSide + 1) % PageIndicatorOptions.SIDE_COUNT
++                        prefs.pageIndicatorSide = pageIndicatorSide
++                    })
++            }
 +            var pageIndicatorAutoHide by remember { mutableStateOf(prefs.pageIndicatorAutoHide) }
-+            SettingsSelect(title = stringResource(R.string.page_indicator_auto_hide_title),
-+                option = if (pageIndicatorAutoHide == 0) stringResource(R.string.page_indicator_auto_hide_off)
-+                    else stringResource(R.string.page_indicator_auto_hide_seconds, pageIndicatorAutoHide),
-+                description = stringResource(R.string.desc_page_indicator_auto_hide),
-+                enabled = homeUiState.pageIndicatorVisible, fontSize = titleFontSize, onClick = {
-+                    pageIndicatorAutoHide = PageIndicatorOptions.nextAutoHide(pageIndicatorAutoHide)
-+                    prefs.pageIndicatorAutoHide = pageIndicatorAutoHide
-+                })
++            PatcherSubSetting(1) {
++                SettingsSelect(title = stringResource(R.string.page_indicator_auto_hide_title),
++                    option = if (pageIndicatorAutoHide == 0) stringResource(R.string.page_indicator_auto_hide_off)
++                        else stringResource(R.string.page_indicator_auto_hide_seconds, pageIndicatorAutoHide),
++                    description = stringResource(R.string.desc_page_indicator_auto_hide),
++                    enabled = homeUiState.pageIndicatorVisible, fontSize = titleFontSize, onClick = {
++                        pageIndicatorAutoHide = PageIndicatorOptions.nextAutoHide(pageIndicatorAutoHide)
++                        prefs.pageIndicatorAutoHide = pageIndicatorAutoHide
++                    })
++            }
++            val pageIndicatorAutoHideOn = homeUiState.pageIndicatorVisible && pageIndicatorAutoHide > 0
 +            var pageIndicatorFadedOpacity by remember { mutableStateOf(prefs.pageIndicatorFadedOpacity) }
 +            val fadedOpacityLabel: (Int) -> String = { if (it == 0) getString(R.string.page_indicator_faded_nothing) else "$it%" }
-+            SettingsSelect(title = stringResource(R.string.page_indicator_faded_title),
-+                option = fadedOpacityLabel(pageIndicatorFadedOpacity),
-+                description = stringResource(R.string.desc_page_indicator_faded),
-+                enabled = homeUiState.pageIndicatorVisible && pageIndicatorAutoHide > 0, fontSize = titleFontSize, onClick = {
-+                    dialogBuilder.showSliderDialog(requireContext(), getString(R.string.page_indicator_faded_title),
-+                        PageIndicatorOptions.FADED_OPACITY_MIN, PageIndicatorOptions.FADED_OPACITY_MAX, pageIndicatorFadedOpacity, step = 10,
-+                        valueFormatter = fadedOpacityLabel) {
-+                        pageIndicatorFadedOpacity = it
-+                        prefs.pageIndicatorFadedOpacity = it
-+                    }
-+                })
++            PatcherSubSetting(2) {
++                SettingsSelect(title = stringResource(R.string.page_indicator_faded_title),
++                    option = fadedOpacityLabel(pageIndicatorFadedOpacity),
++                    description = stringResource(R.string.desc_page_indicator_faded),
++                    enabled = pageIndicatorAutoHideOn, fontSize = titleFontSize, onClick = {
++                        dialogBuilder.showSliderDialog(requireContext(), getString(R.string.page_indicator_faded_dialog_title),
++                            PageIndicatorOptions.FADED_OPACITY_MIN, PageIndicatorOptions.FADED_OPACITY_MAX, pageIndicatorFadedOpacity, step = 10,
++                            valueFormatter = fadedOpacityLabel) {
++                            pageIndicatorFadedOpacity = it
++                            prefs.pageIndicatorFadedOpacity = it
++                        }
++                    })
++            }
++            var pageIndicatorFadeStyle by remember { mutableStateOf(prefs.pageIndicatorFadeStyle) }
++            val pageIndicatorFadeLabels = listOf(stringResource(R.string.page_indicator_fade_smooth), stringResource(R.string.page_indicator_fade_instant))
++            PatcherSubSetting(2) {
++                SettingsSelect(title = stringResource(R.string.page_indicator_fade_title),
++                    option = pageIndicatorFadeLabels.getOrElse(pageIndicatorFadeStyle) { pageIndicatorFadeLabels[0] },
++                    description = stringResource(R.string.desc_page_indicator_fade),
++                    enabled = pageIndicatorAutoHideOn, fontSize = titleFontSize, onClick = {
++                        pageIndicatorFadeStyle = (pageIndicatorFadeStyle + 1) % PageIndicatorOptions.FADE_STYLE_COUNT
++                        prefs.pageIndicatorFadeStyle = pageIndicatorFadeStyle
++                    })
++            }
 +            var pageIndicatorOpacity by remember { mutableStateOf(prefs.pageIndicatorOpacity) }
-+            SettingsSelect(title = stringResource(R.string.page_indicator_opacity_title),
-+                option = "$pageIndicatorOpacity%",
-+                description = stringResource(R.string.desc_page_indicator_opacity),
-+                enabled = homeUiState.pageIndicatorVisible, fontSize = titleFontSize, onClick = {
-+                    dialogBuilder.showSliderDialog(requireContext(), getString(R.string.page_indicator_opacity_title),
-+                        PageIndicatorOptions.OPACITY_MIN, PageIndicatorOptions.OPACITY_MAX, pageIndicatorOpacity, step = 10,
-+                        valueFormatter = { "$it%" }) {
-+                        pageIndicatorOpacity = it
-+                        prefs.pageIndicatorOpacity = it
-+                    }
-+                })
++            PatcherSubSetting(1) {
++                SettingsSelect(title = stringResource(R.string.page_indicator_opacity_title),
++                    option = "$pageIndicatorOpacity%",
++                    description = stringResource(R.string.desc_page_indicator_opacity),
++                    enabled = homeUiState.pageIndicatorVisible, fontSize = titleFontSize, onClick = {
++                        dialogBuilder.showSliderDialog(requireContext(), getString(R.string.page_indicator_opacity_dialog_title),
++                            PageIndicatorOptions.OPACITY_MIN, PageIndicatorOptions.OPACITY_MAX, pageIndicatorOpacity, step = 10,
++                            valueFormatter = { "$it%" }) {
++                            pageIndicatorOpacity = it
++                            prefs.pageIndicatorOpacity = it
++                        }
++                    })
++            }
 +            var pageIndicatorStyle by remember { mutableStateOf(prefs.pageIndicatorStyle) }
 +            val pageIndicatorStyleLabels = listOf(stringResource(R.string.page_indicator_style_classic), stringResource(R.string.page_indicator_style_pill))
-+            SettingsSelect(title = stringResource(R.string.page_indicator_style_title),
-+                option = pageIndicatorStyleLabels.getOrElse(pageIndicatorStyle) { pageIndicatorStyleLabels[0] },
-+                description = stringResource(R.string.desc_page_indicator_style),
-+                enabled = homeUiState.pageIndicatorVisible, fontSize = titleFontSize, onClick = {
-+                    pageIndicatorStyle = (pageIndicatorStyle + 1) % PageIndicatorOptions.STYLE_COUNT
-+                    prefs.pageIndicatorStyle = pageIndicatorStyle
-+                })
++            PatcherSubSetting(1) {
++                SettingsSelect(title = stringResource(R.string.page_indicator_style_title),
++                    option = pageIndicatorStyleLabels.getOrElse(pageIndicatorStyle) { pageIndicatorStyleLabels[0] },
++                    description = stringResource(R.string.desc_page_indicator_style),
++                    enabled = homeUiState.pageIndicatorVisible, fontSize = titleFontSize, onClick = {
++                        pageIndicatorStyle = (pageIndicatorStyle + 1) % PageIndicatorOptions.STYLE_COUNT
++                        prefs.pageIndicatorStyle = pageIndicatorStyle
++                    })
++            }
              SettingsSwitch(text = stringResource(R.string.home_page_reset), fontSize = titleFontSize,
                  description = stringResource(R.string.desc_page_reset),
                  defaultState = homeUiState.homeReset, onCheckedChange = { viewModel.setHomeReset(it) })
@@ -420,32 +478,41 @@ index c82a0ba..89cb1e5 100644
          }
 diff --git a/app/src/main/res/values/strings_page_indicator.xml b/app/src/main/res/values/strings_page_indicator.xml
 new file mode 100644
-index 0000000..fde88cd
+index 0000000..a9edf77
 --- /dev/null
 +++ b/app/src/main/res/values/strings_page_indicator.xml
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,35 @@
 +<?xml version="1.0" encoding="utf-8"?>
-+<!-- inkOS-Patcher: page-indicator-options patch. Kept out of strings.xml so upstream edits never conflict. -->
++<!-- inkOS-Patcher: page-indicator-options patch. Kept out of strings.xml so upstream edits never conflict.
++     Row titles are short because the rows sit indented under "Enable Page Indicator"; the trailing
++     star marks settings added by inkOS-Patcher. Dialog titles keep the full name (no context there). -->
 +<resources>
-+    <string name="page_indicator_side_title">Page Indicator Side</string>
++    <string name="page_indicator_side_title">Side ✦</string>
 +    <string name="desc_page_indicator_side">Auto puts it opposite the apps</string>
 +    <string name="page_indicator_side_auto">Auto</string>
 +    <string name="page_indicator_side_left">Left</string>
 +    <string name="page_indicator_side_right">Right</string>
 +
-+    <string name="page_indicator_auto_hide_title">Page Indicator Auto-hide</string>
++    <string name="page_indicator_auto_hide_title">Auto-hide ✦</string>
 +    <string name="desc_page_indicator_auto_hide">Hide it this long after the page changes</string>
 +    <string name="page_indicator_auto_hide_off">Off</string>
 +    <string name="page_indicator_auto_hide_seconds">%1$ds</string>
 +
-+    <string name="page_indicator_faded_title">Page Indicator Fades To</string>
++    <string name="page_indicator_faded_title">Fades To ✦</string>
++    <string name="page_indicator_faded_dialog_title">Page Indicator Fades To</string>
 +    <string name="desc_page_indicator_faded">How visible it stays after auto-hide</string>
 +    <string name="page_indicator_faded_nothing">Nothing</string>
 +
-+    <string name="page_indicator_opacity_title">Page Indicator Opacity</string>
++    <string name="page_indicator_fade_title">Fade ✦</string>
++    <string name="desc_page_indicator_fade">Instant suits e-ink (no grey flicker)</string>
++    <string name="page_indicator_fade_smooth">Smooth</string>
++    <string name="page_indicator_fade_instant">Instant</string>
++
++    <string name="page_indicator_opacity_title">Opacity ✦</string>
++    <string name="page_indicator_opacity_dialog_title">Page Indicator Opacity</string>
 +    <string name="desc_page_indicator_opacity">How visible the page dots are</string>
 +
-+    <string name="page_indicator_style_title">Page Indicator Style</string>
++    <string name="page_indicator_style_title">Style ✦</string>
 +    <string name="desc_page_indicator_style">Pill: the current page is a long pill</string>
 +    <string name="page_indicator_style_classic">Classic</string>
 +    <string name="page_indicator_style_pill">Pill</string>
