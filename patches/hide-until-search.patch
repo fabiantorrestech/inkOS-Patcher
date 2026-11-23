@@ -1,5 +1,5 @@
-From 0d78307734b949970d83d0d3bbe0231f65eb6163 Mon Sep 17 00:00:00 2001
-From: fabiantorrestech <fabiantorrestech@users.noreply.github.com>
+From b089ddbe473a0adbb84def5efebb2ea007c10dd4 Mon Sep 17 00:00:00 2001
+From: Fabian Torres <46858378+fabiantorrestech@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 08:34:11 -0600
 Subject: [PATCH] Drawer: show apps only after search (inkOS-Patcher)
 MIME-Version: 1.0

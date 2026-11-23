@@ -1,5 +1,5 @@
-From dff80d93e7541daf29c0cd1ea226d2e4caf280ca Mon Sep 17 00:00:00 2001
-From: fab <faibiantorrestech@gmail.com>
+From 68625aebe3e9a3f32894c0abaac3bafcfccb986b Mon Sep 17 00:00:00 2001
+From: Fabian Torres <46858378+fabiantorrestech@users.noreply.github.com>
 Date: Fri, 20 Nov 2026 20:36:08 +0000
 Subject: [PATCH] Home: custom page sizes with draggable dividers
  (inkOS-Patcher)
@@ -711,14 +711,14 @@ index c82a0ba..428975c 100644
      val textAlign = when (state.homeAlignment) {
 diff --git a/app/src/main/res/values/strings_page_layout.xml b/app/src/main/res/values/strings_page_layout.xml
 new file mode 100644
-index 0000000..76378a8
+index 0000000..dbbc9a8
 --- /dev/null
 +++ b/app/src/main/res/values/strings_page_layout.xml
 @@ -0,0 +1,15 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<!-- inkOS-Patcher: page-layout patch. Kept out of strings.xml so upstream edits never conflict. -->
 +<resources>
-+    <string name="page_layout_open">Arrange pages</string>
++    <string name="page_layout_open">Arrange pages ✦</string>
 +    <string name="page_layout_title">Arrange Pages</string>
 +    <string name="page_layout_hint">Drag a divider, or tap its arrows, to move apps between pages. Two dividers together make an empty page.</string>
 +    <string name="page_layout_page">Page %1$d</string>
@@ -731,5 +731,5 @@ index 0000000..76378a8
 +    <string name="page_layout_count">%1$d of %2$d pages</string>
 +</resources>
 -- 
-2.43.0
+2.54.0.windows.1
 

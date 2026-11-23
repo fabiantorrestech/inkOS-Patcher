@@ -1,5 +1,5 @@
-From e40a3b6d70c7f730483bee0b078c0a7c817fc34a Mon Sep 17 00:00:00 2001
-From: fab <faibiantorrestech@gmail.com>
+From d0a7a5e8111c527b2ea79262be214c6194a56c12 Mon Sep 17 00:00:00 2001
+From: Fabian Torres <46858378+fabiantorrestech@users.noreply.github.com>
 Date: Fri, 20 Nov 2026 19:17:49 +0000
 Subject: [PATCH] Drawer: master On/Off switch for the app drawer
  (inkOS-Patcher)
@@ -144,16 +144,16 @@ index e6aa3ef..6e3f17a 100644
              Action.OpenLettersScreen -> {
 diff --git a/app/src/main/res/values/strings_app_drawer_toggle.xml b/app/src/main/res/values/strings_app_drawer_toggle.xml
 new file mode 100644
-index 0000000..a1a636c
+index 0000000..9b47942
 --- /dev/null
 +++ b/app/src/main/res/values/strings_app_drawer_toggle.xml
 @@ -0,0 +1,6 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<!-- inkOS-Patcher: app-drawer-toggle patch. Kept out of strings.xml so upstream edits never conflict. -->
 +<resources>
-+    <string name="app_drawer_toggle_title">Enable App Drawer</string>
++    <string name="app_drawer_toggle_title">Enable App Drawer ✦</string>
 +    <string name="desc_app_drawer_toggle">Off: gestures and keys that open the drawer do nothing. Search still works.</string>
 +</resources>
 -- 
-2.43.0
+2.54.0.windows.1
 

@@ -1,5 +1,5 @@
-From 88f22d23a9db87e03b220aec2eb2af0e9333f5d3 Mon Sep 17 00:00:00 2001
-From: fab <faibiantorrestech@gmail.com>
+From 41041e293bbbb791a86c840129e1df710e0d91ee Mon Sep 17 00:00:00 2001
+From: Fabian Torres <46858378+fabiantorrestech@users.noreply.github.com>
 Date: Fri, 20 Nov 2026 20:44:34 +0000
 Subject: [PATCH] Backup: keep patcher settings in a vanilla-safe section
  (inkOS-Patcher)

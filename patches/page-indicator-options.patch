@@ -1,5 +1,5 @@
-From 0d69d1572d6aa45f0504717866df0410e53bd407 Mon Sep 17 00:00:00 2001
-From: fab <faibiantorrestech@gmail.com>
+From fdbb4cbb5c397c0931dcbcab7d0428605d815d5e Mon Sep 17 00:00:00 2001
+From: Fabian Torres <46858378+fabiantorrestech@users.noreply.github.com>
 Date: Mon, 16 Nov 2026 17:55:45 -0600
 Subject: [PATCH] Home: page indicator side, auto-hide fade, opacity, pill dots
  (inkOS-Patcher)

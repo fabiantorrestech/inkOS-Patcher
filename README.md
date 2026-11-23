@@ -12,7 +12,7 @@ Builds [inkOS](https://github.com/gezimos/inkOS) releases with five extra patche
 
   Theme exports work the same way for the patcher's look/layout settings (page indicator, page layout, Show Apps).
 
-- **Page layout: choose how many apps each Home page gets.** In Edit Favorites, tap the **x/y apps** title, then **Arrange pages**. It lists your home slots in order with a divider between pages:
+- **Page layout: choose how many apps each Home page gets.** In Edit Favorites, tap the **x/y apps** title, then **Arrange pages ✦**. It lists your home slots in order with a divider between pages:
 
   | Action | How |
   | --- | --- |
@@ -24,7 +24,7 @@ Builds [inkOS](https://github.com/gezimos/inkOS) releases with five extra patche
 
   Dividers can't pass each other or leave the list. **Save** applies the layout to Home and to the dashed lines in Edit Favorites. Changing "Number of home apps" or "Number of pages" afterwards goes back to the stock even split.
 
-- **App drawer toggle: turn the app drawer off.** A new switch, Settings → App Drawer → **Enable App Drawer** (default On). When Off, everything that opens the drawer to browse apps does nothing: the "App Drawer" action on any gesture or shortcut, the Menu key and Backspace on Home, the "App Drawer" home shortcut, and the open-drawer intent. The **Search** action and typing on Home still open search (what it lists follows Show Apps below). Settings and the home-app, favorites and hidden-app pickers still work.
+- **App drawer toggle: turn the app drawer off.** A new switch, Settings → App Drawer → **Enable App Drawer ✦** (default On). When Off, everything that opens the drawer to browse apps does nothing: the "App Drawer" action on any gesture or shortcut, the Menu key and Backspace on Home, the "App Drawer" home shortcut, and the open-drawer intent. The **Search** action and typing on Home still open search (what it lists follows Show Apps below). Settings and the home-app, favorites and hidden-app pickers still work.
 
 - **Hide until search: the app drawer stays empty until you search.** A new setting, Settings → App Drawer → Search → **Show Apps ✦** (under Show Search Bar), picks when the drawer lists apps:
 
